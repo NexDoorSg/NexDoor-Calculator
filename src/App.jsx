@@ -12,7 +12,7 @@ const BRAND = {
 
 const style = document.createElement("style");
 style.textContent = `
-  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,800;0,900&family=DM+Sans:wght@300;400;500;600&display=swap');
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -33,7 +33,7 @@ style.textContent = `
   }
 
   .nd-logo-wrap { display: flex; flex-direction: column; }
-  .nd-logo { font-family: 'Cormorant Garamond', serif; font-size: 26px; font-weight: 700; color: #FAF8F4; letter-spacing: 3px; text-transform: uppercase; }
+  .nd-logo { font-family: 'Playfair Display', serif; font-size: 26px; font-weight: 700; color: #FAF8F4; letter-spacing: 3px; text-transform: uppercase; }
   .nd-tagline { font-size: 10px; color: #C9A84C; letter-spacing: 2.5px; text-transform: uppercase; font-weight: 500; margin-top: 2px; }
 
   .nd-badge { background: rgba(201,168,76,0.15); border: 1px solid rgba(201,168,76,0.3); color: #C9A84C; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; padding: 6px 12px; border-radius: 2px; }
@@ -71,7 +71,7 @@ style.textContent = `
   .nd-content { max-width: 820px; margin: 0 auto; padding: 40px 24px 80px; }
 
   .nd-panel-title {
-    font-family: 'Cormorant Garamond', serif;
+    font-family: 'Playfair Display', serif;
     font-size: 32px;
     font-weight: 600;
     color: #0D1F3C;
@@ -150,7 +150,7 @@ style.textContent = `
   }
 
   .nd-result-value {
-    font-family: 'Cormorant Garamond', serif;
+    font-family: 'Playfair Display', serif;
     font-size: 48px;
     font-weight: 600;
     color: #C9A84C;
@@ -193,7 +193,7 @@ style.textContent = `
   .nd-compare-card.left { background: #00838F; }
   .nd-compare-card.right { background: #C9A84C; }
   .nd-compare-card-label { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: rgba(255,255,255,0.65); margin-bottom: 12px; }
-  .nd-compare-card-val { font-family: 'Cormorant Garamond', serif; font-size: 32px; font-weight: 600; color: white; line-height: 1; margin-bottom: 4px; }
+  .nd-compare-card-val { font-family: 'Playfair Display', serif; font-size: 32px; font-weight: 600; color: white; line-height: 1; margin-bottom: 4px; }
   .nd-compare-card-sub { font-size: 11px; color: rgba(255,255,255,0.65); }
 
   .nd-winner-badge {
@@ -273,16 +273,23 @@ function getABSD(profile, propertyCount, price) {
 
 // ─── 1. Affordability ─────────────────────────────────────────
 function AffordabilityCalc() {
-  const [income, setIncome] = useState("");
-  const [debt, setDebt] = useState("");
+  const [buyers, setBuyers] = useState("1");
+  const [income1, setIncome1] = useState("");
+  const [debt1, setDebt1] = useState("");
+  const [income2, setIncome2] = useState("");
+  const [debt2, setDebt2] = useState("");
   const [type, setType] = useState("private");
   const [rate, setRate] = useState("4.0");
   const [tenure, setTenure] = useState("25");
   const [result, setResult] = useState(null);
 
   const calc = () => {
-    const mi = parseFloat(income);
-    const md = parseFloat(debt) || 0;
+    const mi1 = parseFloat(income1) || 0;
+    const md1 = parseFloat(debt1) || 0;
+    const mi2 = buyers === "2" ? (parseFloat(income2) || 0) : 0;
+    const md2 = buyers === "2" ? (parseFloat(debt2) || 0) : 0;
+    const mi = mi1 + mi2;
+    const md = md1 + md2;
     const r = parseFloat(rate) / 100 / 12;
     const n = parseInt(tenure) * 12;
 
@@ -291,12 +298,11 @@ function AffordabilityCalc() {
     const maxRepayment = Math.min(tdsrCap - md, msrCap);
 
     const maxLoan = maxRepayment * ((Math.pow(1 + r, n) - 1) / (r * Math.pow(1 + r, n)));
-    const ltv = type === "hdb" ? 0.75 : 0.75;
-    const maxPrice = maxLoan / ltv;
+    const maxPrice = maxLoan / 0.75;
     const minCash = maxPrice * 0.05;
     const cpfUsable = maxPrice * 0.20;
 
-    setResult({ maxLoan, maxPrice, maxRepayment, minCash, cpfUsable, type });
+    setResult({ maxLoan, maxPrice, maxRepayment, minCash, cpfUsable, mi, md });
   };
 
   return (
@@ -304,20 +310,36 @@ function AffordabilityCalc() {
       <h2 className="nd-panel-title">Affordability & Max Loan</h2>
       <p className="nd-panel-sub">Based on TDSR (55%) and MSR (30% for HDB) guidelines</p>
 
-      <div className="nd-segment">
-        <button className={`nd-seg-btn ${type === "hdb" ? "active" : ""}`} onClick={() => setType("hdb")}>HDB / EC</button>
-        <button className={`nd-seg-btn ${type === "private" ? "active" : ""}`} onClick={() => setType("private")}>Private</button>
+      <div style={{display:"flex", gap:12, marginBottom:20, flexWrap:"wrap"}}>
+        <div className="nd-segment" style={{flex:1, minWidth:200}}>
+          <button className={`nd-seg-btn ${type === "hdb" ? "active" : ""}`} onClick={() => setType("hdb")}>HDB / EC</button>
+          <button className={`nd-seg-btn ${type === "private" ? "active" : ""}`} onClick={() => setType("private")}>Private</button>
+        </div>
+        <div className="nd-segment" style={{flex:1, minWidth:200}}>
+          <button className={`nd-seg-btn ${buyers === "1" ? "active" : ""}`} onClick={() => setBuyers("1")}>1 Buyer</button>
+          <button className={`nd-seg-btn ${buyers === "2" ? "active" : ""}`} onClick={() => setBuyers("2")}>2 Buyers</button>
+        </div>
       </div>
 
       <div className="nd-grid">
         <div className="nd-field">
-          <label className="nd-label">Gross Monthly Income</label>
-          <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="8,000" value={income} onChange={e => setIncome(e.target.value)} /></div>
+          <label className="nd-label">{buyers === "2" ? "Buyer 1 — Gross Monthly Income" : "Gross Monthly Income"}</label>
+          <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="8,000" value={income1} onChange={e => setIncome1(e.target.value)} /></div>
         </div>
         <div className="nd-field">
-          <label className="nd-label">Existing Monthly Debt</label>
-          <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="500" value={debt} onChange={e => setDebt(e.target.value)} /></div>
+          <label className="nd-label">{buyers === "2" ? "Buyer 1 — Existing Monthly Debt" : "Existing Monthly Debt"}</label>
+          <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="500" value={debt1} onChange={e => setDebt1(e.target.value)} /></div>
         </div>
+        {buyers === "2" && <>
+          <div className="nd-field">
+            <label className="nd-label">Buyer 2 — Gross Monthly Income</label>
+            <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="6,000" value={income2} onChange={e => setIncome2(e.target.value)} /></div>
+          </div>
+          <div className="nd-field">
+            <label className="nd-label">Buyer 2 — Existing Monthly Debt</label>
+            <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="0" value={debt2} onChange={e => setDebt2(e.target.value)} /></div>
+          </div>
+        </>}
         <div className="nd-field">
           <label className="nd-label">Interest Rate (% p.a.)</label>
           <input className="nd-input" placeholder="4.0" value={rate} onChange={e => setRate(e.target.value)} />
@@ -332,7 +354,7 @@ function AffordabilityCalc() {
 
       {result && (
         <div className="nd-results">
-          <p className="nd-results-title">Estimated Affordability</p>
+          <p className="nd-results-title">Estimated Affordability {buyers === "2" ? "(Combined)" : ""}</p>
           <div className="nd-result-main">
             <div>
               <p className="nd-result-label">Maximum Property Price</p>
@@ -342,13 +364,15 @@ function AffordabilityCalc() {
           <div className="nd-breakdown">
             <div className="nd-breakdown-item"><p className="nd-breakdown-label">Max Loan (75% LTV)</p><p className="nd-breakdown-val">{fmtS(result.maxLoan)}</p></div>
             <div className="nd-breakdown-item"><p className="nd-breakdown-label">Max Monthly Repayment</p><p className="nd-breakdown-val">{fmtS(result.maxRepayment)}</p></div>
+            {buyers === "2" && <div className="nd-breakdown-item"><p className="nd-breakdown-label">Combined Income</p><p className="nd-breakdown-val">{fmtS(result.mi)}</p></div>}
+            {buyers === "2" && <div className="nd-breakdown-item"><p className="nd-breakdown-label">Combined Debt</p><p className="nd-breakdown-val">{fmtS(result.md)}</p></div>}
             <div className="nd-breakdown-item"><p className="nd-breakdown-label">Min Cash (5%)</p><p className="nd-breakdown-val">{fmtS(result.minCash)}</p></div>
             <div className="nd-breakdown-item"><p className="nd-breakdown-label">CPF Usable (20%)</p><p className="nd-breakdown-val">{fmtS(result.cpfUsable)}</p></div>
           </div>
         </div>
       )}
 
-      <p className="nd-note">Assumes 75% LTV (first property, no outstanding loans). TDSR = 55%, MSR = 30% applies to HDB/EC only. Actual approval subject to bank assessment.</p>
+      <p className="nd-note">Assumes 75% LTV (first property, no outstanding loans). TDSR = 55%, MSR = 30% applies to HDB/EC only. For 2 buyers, incomes and debts are combined. Actual approval subject to bank assessment.</p>
     </div>
   );
 }
@@ -639,10 +663,14 @@ function RentalYieldCalc() {
 
 // ─── 6. Seller Net Proceeds ───────────────────────────────────
 function SellerProceedsCalc() {
+  const [sellers, setSellers] = useState("1");
+  const [split, setSplit] = useState("50");
   const [salePrice, setSalePrice] = useState("");
   const [outstanding, setOutstanding] = useState("");
-  const [cpfUsed, setCpfUsed] = useState("");
-  const [cpfInterest, setCpfInterest] = useState("");
+  const [cpfUsed1, setCpfUsed1] = useState("");
+  const [cpfInterest1, setCpfInterest1] = useState("");
+  const [cpfUsed2, setCpfUsed2] = useState("");
+  const [cpfInterest2, setCpfInterest2] = useState("");
   const [commRate, setCommRate] = useState("2.0");
   const [legalFees, setLegalFees] = useState("3000");
   const [ssdYears, setSsdYears] = useState("0");
@@ -653,23 +681,42 @@ function SellerProceedsCalc() {
   const calc = () => {
     const sp = parseFloat(salePrice);
     const loan = parseFloat(outstanding) || 0;
-    const cpf = parseFloat(cpfUsed) || 0;
-    const cpfInt = parseFloat(cpfInterest) || 0;
+    const cpf1 = (parseFloat(cpfUsed1) || 0) + (parseFloat(cpfInterest1) || 0);
+    const cpf2 = sellers === "2" ? (parseFloat(cpfUsed2) || 0) + (parseFloat(cpfInterest2) || 0) : 0;
     const comm = sp * parseFloat(commRate) / 100;
     const legal = parseFloat(legalFees) || 0;
-    const ssdYr = parseInt(ssdYears);
-    const ssd = sp * (SSD_RATES[Math.min(ssdYr, 3)] || 0);
-    const cpfRefund = cpf + cpfInt;
-    const totalDeductions = loan + cpfRefund + comm + legal + ssd;
+    const ssd = sp * (SSD_RATES[Math.min(parseInt(ssdYears), 3)] || 0);
+    const totalDeductions = loan + cpf1 + cpf2 + comm + legal + ssd;
     const netCash = sp - totalDeductions;
 
-    setResult({ sp, loan, cpfRefund, comm, legal, ssd, totalDeductions, netCash });
+    const pct1 = parseInt(split) / 100;
+    const pct2 = 1 - pct1;
+    // Each seller gets their share of (sale price - shared deductions) minus their own CPF
+    const sharedDeductions = loan + comm + legal + ssd;
+    const seller1Cash = (sp * pct1) - (sharedDeductions * pct1) - cpf1;
+    const seller2Cash = (sp * pct2) - (sharedDeductions * pct2) - cpf2;
+
+    setResult({ sp, loan, cpf1, cpf2, comm, legal, ssd, totalDeductions, netCash, seller1Cash, seller2Cash, pct1, pct2 });
   };
 
   return (
     <div>
       <h2 className="nd-panel-title">Seller Net Proceeds</h2>
-      <p className="nd-panel-sub">Estimate your actual cash after all deductions</p>
+      <p className="nd-panel-sub">Estimate actual cash after all deductions</p>
+
+      <div style={{display:"flex", gap:12, marginBottom:20, flexWrap:"wrap"}}>
+        <div className="nd-segment" style={{flex:1, minWidth:200}}>
+          <button className={`nd-seg-btn ${sellers === "1" ? "active" : ""}`} onClick={() => setSellers("1")}>1 Seller</button>
+          <button className={`nd-seg-btn ${sellers === "2" ? "active" : ""}`} onClick={() => setSellers("2")}>2 Sellers</button>
+        </div>
+        {sellers === "2" && (
+          <div className="nd-segment" style={{flex:1, minWidth:200}}>
+            {[["50","50 / 50"],["60","60 / 40"],["70","70 / 30"],["99","99 / 1"]].map(([v, l]) => (
+              <button key={v} className={`nd-seg-btn ${split === v ? "active" : ""}`} onClick={() => setSplit(v)} style={{fontSize:10}}>{l}</button>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="nd-grid">
         <div className="nd-field">
@@ -681,13 +728,23 @@ function SellerProceedsCalc() {
           <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="400,000" value={outstanding} onChange={e => setOutstanding(e.target.value)} /></div>
         </div>
         <div className="nd-field">
-          <label className="nd-label">CPF Principal Used</label>
-          <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="150,000" value={cpfUsed} onChange={e => setCpfUsed(e.target.value)} /></div>
+          <label className="nd-label">{sellers === "2" ? "Seller 1 — CPF Principal Used" : "CPF Principal Used"}</label>
+          <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="150,000" value={cpfUsed1} onChange={e => setCpfUsed1(e.target.value)} /></div>
         </div>
         <div className="nd-field">
-          <label className="nd-label">CPF Accrued Interest</label>
-          <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="30,000" value={cpfInterest} onChange={e => setCpfInterest(e.target.value)} /></div>
+          <label className="nd-label">{sellers === "2" ? "Seller 1 — CPF Accrued Interest" : "CPF Accrued Interest"}</label>
+          <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="30,000" value={cpfInterest1} onChange={e => setCpfInterest1(e.target.value)} /></div>
         </div>
+        {sellers === "2" && <>
+          <div className="nd-field">
+            <label className="nd-label">Seller 2 — CPF Principal Used</label>
+            <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="80,000" value={cpfUsed2} onChange={e => setCpfUsed2(e.target.value)} /></div>
+          </div>
+          <div className="nd-field">
+            <label className="nd-label">Seller 2 — CPF Accrued Interest</label>
+            <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="15,000" value={cpfInterest2} onChange={e => setCpfInterest2(e.target.value)} /></div>
+          </div>
+        </>}
         <div className="nd-field">
           <label className="nd-label">Agent Commission (%)</label>
           <input className="nd-input" placeholder="2.0" value={commRate} onChange={e => setCommRate(e.target.value)} />
@@ -711,15 +768,33 @@ function SellerProceedsCalc() {
       {result && (
         <div className="nd-results">
           <p className="nd-results-title">Net Proceeds</p>
-          <div className="nd-result-main">
-            <div>
-              <p className="nd-result-label">Cash in Hand After Sale</p>
-              <div className="nd-result-value" style={{color: result.netCash < 0 ? "#ef5350" : "#C9A84C"}}>{fmtS(result.netCash)}</div>
+          {sellers === "1" ? (
+            <>
+              <div className="nd-result-main">
+                <div>
+                  <p className="nd-result-label">Cash in Hand After Sale</p>
+                  <div className="nd-result-value" style={{color: result.netCash < 0 ? "#ef5350" : "#C9A84C"}}>{fmtS(result.netCash)}</div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="nd-compare-grid" style={{marginBottom: 20}}>
+              <div className="nd-compare-card left">
+                <p className="nd-compare-card-label">Seller 1 ({Math.round(result.pct1 * 100)}% share)</p>
+                <div className="nd-compare-card-val">{fmtS(result.seller1Cash)}</div>
+                <p className="nd-compare-card-sub">Cash after CPF refund</p>
+              </div>
+              <div className="nd-compare-card right">
+                <p className="nd-compare-card-label">Seller 2 ({Math.round(result.pct2 * 100)}% share)</p>
+                <div className="nd-compare-card-val">{fmtS(result.seller2Cash)}</div>
+                <p className="nd-compare-card-sub">Cash after CPF refund</p>
+              </div>
             </div>
-          </div>
+          )}
           <div className="nd-breakdown">
             <div className="nd-breakdown-item"><p className="nd-breakdown-label">Loan Repayment</p><p className="nd-breakdown-val">{fmtS(result.loan)}</p></div>
-            <div className="nd-breakdown-item"><p className="nd-breakdown-label">CPF Refund (incl. interest)</p><p className="nd-breakdown-val">{fmtS(result.cpfRefund)}</p></div>
+            <div className="nd-breakdown-item"><p className="nd-breakdown-label">CPF Refund {sellers === "2" ? "(Seller 1)" : "(incl. interest)"}</p><p className="nd-breakdown-val">{fmtS(result.cpf1)}</p></div>
+            {sellers === "2" && <div className="nd-breakdown-item"><p className="nd-breakdown-label">CPF Refund (Seller 2)</p><p className="nd-breakdown-val">{fmtS(result.cpf2)}</p></div>}
             <div className="nd-breakdown-item"><p className="nd-breakdown-label">Commission</p><p className="nd-breakdown-val">{fmtS(result.comm)}</p></div>
             <div className="nd-breakdown-item"><p className="nd-breakdown-label">Legal Fees</p><p className="nd-breakdown-val">{fmtS(result.legal)}</p></div>
             {result.ssd > 0 && <div className="nd-breakdown-item"><p className="nd-breakdown-label">Seller's Stamp Duty</p><p className="nd-breakdown-val">{fmtS(result.ssd)}</p></div>}
@@ -727,7 +802,7 @@ function SellerProceedsCalc() {
           </div>
         </div>
       )}
-      <p className="nd-note">CPF must be refunded to your OA with accrued interest at 2.5% p.a. Net proceeds = cash received, excluding CPF refund. SSD applies for properties sold within 3 years of purchase.</p>
+      <p className="nd-note">CPF must be refunded to each owner's OA with accrued interest at 2.5% p.a. For 2 sellers, shared costs (loan, commission, legal, SSD) are split by ownership %. Each seller's CPF is deducted from their own proceeds. SSD applies within 3 years of purchase.</p>
     </div>
   );
 }
@@ -750,7 +825,7 @@ export default function App() {
     <div className="nd-app">
       <header className="nd-header">
         <div className="nd-logo-wrap">
-          <div className="nd-logo">NexDoor</div>
+          <div className="nd-logo">NexDoor.</div>
           <div className="nd-tagline">Property decisions, made with precision</div>
         </div>
         <div className="nd-badge">Property Calculator</div>
