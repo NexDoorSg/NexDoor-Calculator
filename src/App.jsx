@@ -676,7 +676,7 @@ function SellerProceedsCalc() {
   const [ssdYears, setSsdYears] = useState("0");
   const [result, setResult] = useState(null);
 
-  const SSD_RATES = { 0: 0, 1: 0.12, 2: 0.08, 3: 0.04 };
+  const SSD_RATES = { 0: 0, 1: 0.16, 2: 0.12, 3: 0.08, 4: 0.04 };
 
   const calc = () => {
     const sp = parseFloat(salePrice);
@@ -685,7 +685,7 @@ function SellerProceedsCalc() {
     const cpf2 = sellers === "2" ? (parseFloat(cpfUsed2) || 0) + (parseFloat(cpfInterest2) || 0) : 0;
     const comm = sp * parseFloat(commRate) / 100;
     const legal = parseFloat(legalFees) || 0;
-    const ssd = sp * (SSD_RATES[Math.min(parseInt(ssdYears), 3)] || 0);
+    const ssd = sp * (SSD_RATES[Math.min(parseInt(ssdYears), 4)] || 0);
     const totalDeductions = loan + cpf1 + cpf2 + comm + legal + ssd;
     const netCash = sp - totalDeductions;
 
@@ -756,7 +756,7 @@ function SellerProceedsCalc() {
         <div className="nd-field nd-full">
           <label className="nd-label">Held for (SSD period)</label>
           <div className="nd-segment" style={{marginBottom: 0}}>
-            {[["0","No SSD"],["1","Year 1 (12%)"],["2","Year 2 (8%)"],["3","Year 3 (4%)"]].map(([v, l]) => (
+            {[["0","No SSD"],["1","Year 1 (16%)"],["2","Year 2 (12%)"],["3","Year 3 (8%)"],["4","Year 4 (4%)"]].map(([v, l]) => (
               <button key={v} className={`nd-seg-btn ${ssdYears === v ? "active" : ""}`} onClick={() => setSsdYears(v)} style={{fontSize: 10}}>{l}</button>
             ))}
           </div>
