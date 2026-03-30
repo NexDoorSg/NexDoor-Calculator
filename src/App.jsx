@@ -686,15 +686,17 @@ function SellerProceedsCalc() {
     const comm = sp * parseFloat(commRate) / 100;
     const legal = parseFloat(legalFees) || 0;
     const ssd = sp * (SSD_RATES[Math.min(parseInt(ssdYears), 4)] || 0);
-    const totalDeductions = loan + cpf1 + cpf2 + comm + legal + ssd;
-    const netCash = sp - totalDeductions;
 
     const pct1 = parseInt(split) / 100;
     const pct2 = 1 - pct1;
-    // Each seller gets their share of (sale price - shared deductions) minus their own CPF
-    const sharedDeductions = loan + comm + legal + ssd;
-    const seller1Cash = (sp * pct1) - (sharedDeductions * pct1) - cpf1;
-    const seller2Cash = (sp * pct2) - (sharedDeductions * pct2) - cpf2;
+
+    // FIXED: Deduct ALL costs from sale price first, then split net pool by ownership %
+    const netPool = sp - loan - cpf1 - cpf2 - comm - legal - ssd;
+    const seller1Cash = netPool * pct1;
+    const seller2Cash = netPool * pct2;
+
+    const totalDeductions = loan + cpf1 + cpf2 + comm + legal + ssd;
+    const netCash = sp - totalDeductions;
 
     setResult({ sp, loan, cpf1, cpf2, comm, legal, ssd, totalDeductions, netCash, seller1Cash, seller2Cash, pct1, pct2 });
   };
@@ -802,7 +804,7 @@ function SellerProceedsCalc() {
           </div>
         </div>
       )}
-      <p className="nd-note">CPF must be refunded to each owner's OA with accrued interest at 2.5% p.a. For 2 sellers, shared costs (loan, commission, legal, SSD) are split by ownership %. Each seller's CPF is deducted from their own proceeds. SSD applies within 3 years of purchase.</p>
+      <p className="nd-note">CPF must be refunded to each owner's OA with accrued interest at 2.5% p.a. For 2 sellers, all costs (loan, CPF, commission, legal, SSD) are deducted from the sale price first. The remaining net proceeds are then split by ownership %. SSD applies within 3 years of purchase.</p>
     </div>
   );
 }
