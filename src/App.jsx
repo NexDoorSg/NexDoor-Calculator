@@ -234,7 +234,7 @@ const fmt = (n, dec = 0) => {
   return n.toLocaleString("en-SG", { minimumFractionDigits: dec, maximumFractionDigits: dec });
 };
 
-const fmtS = (n, dec = 0) => isNaN(n) || !isFinite(n) ? "—" : `S$${fmt(n, dec)}`;
+const fmtS = (n, dec = 0) => isNaN(n) || !isFinite(n) ? "—" : `S$ ${fmt(n, dec)}`;
 
 // ─── BSD Calculation ───────────────────────────────────────────
 function calcBSD(price) {
