@@ -107,7 +107,7 @@ style.textContent = `
     position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
     color: #8A8A8A; font-size: 14px; pointer-events: none;
   }
-  .nd-input-wrap .nd-input { padding-left: 26px; }
+  .nd-input-wrap .nd-input { padding-left: 34px; }
 
   .nd-btn {
     background: #0D1F3C;
@@ -324,20 +324,20 @@ function AffordabilityCalc() {
       <div className="nd-grid">
         <div className="nd-field">
           <label className="nd-label">{buyers === "2" ? "Buyer 1 — Gross Monthly Income" : "Gross Monthly Income"}</label>
-          <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="8,000" value={income1} onChange={e => setIncome1(e.target.value)} /></div>
+          <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="8,000" value={income1} onChange={e => setIncome1(e.target.value)} /></div>
         </div>
         <div className="nd-field">
           <label className="nd-label">{buyers === "2" ? "Buyer 1 — Existing Monthly Debt" : "Existing Monthly Debt"}</label>
-          <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="500" value={debt1} onChange={e => setDebt1(e.target.value)} /></div>
+          <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="500" value={debt1} onChange={e => setDebt1(e.target.value)} /></div>
         </div>
         {buyers === "2" && <>
           <div className="nd-field">
             <label className="nd-label">Buyer 2 — Gross Monthly Income</label>
-            <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="6,000" value={income2} onChange={e => setIncome2(e.target.value)} /></div>
+            <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="6,000" value={income2} onChange={e => setIncome2(e.target.value)} /></div>
           </div>
           <div className="nd-field">
             <label className="nd-label">Buyer 2 — Existing Monthly Debt</label>
-            <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="0" value={debt2} onChange={e => setDebt2(e.target.value)} /></div>
+            <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="0" value={debt2} onChange={e => setDebt2(e.target.value)} /></div>
           </div>
         </>}
         <div className="nd-field">
@@ -404,7 +404,7 @@ function MortgageCalc() {
       <div className="nd-grid">
         <div className="nd-field">
           <label className="nd-label">Loan Amount</label>
-          <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="800,000" value={loan} onChange={e => setLoan(e.target.value)} /></div>
+          <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="800,000" value={loan} onChange={e => setLoan(e.target.value)} /></div>
         </div>
         <div className="nd-field">
           <label className="nd-label">Interest Rate (% p.a.)</label>
@@ -463,7 +463,7 @@ function StampDutyCalc() {
       <div className="nd-grid">
         <div className="nd-field">
           <label className="nd-label">Purchase Price</label>
-          <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="1,200,000" value={price} onChange={e => setPrice(e.target.value)} /></div>
+          <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="1,200,000" value={price} onChange={e => setPrice(e.target.value)} /></div>
         </div>
         <div className="nd-field">
           <label className="nd-label">Buyer Profile</label>
@@ -537,7 +537,7 @@ function CpfCashCalc() {
       <div className="nd-grid">
         <div className="nd-field">
           <label className="nd-label">CPF OA Amount to Use</label>
-          <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="150,000" value={cpfAmt} onChange={e => setCpfAmt(e.target.value)} /></div>
+          <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="150,000" value={cpfAmt} onChange={e => setCpfAmt(e.target.value)} /></div>
         </div>
         <div className="nd-field">
           <label className="nd-label">Holding Period (years)</label>
@@ -615,11 +615,11 @@ function RentalYieldCalc() {
       <div className="nd-grid">
         <div className="nd-field">
           <label className="nd-label">Purchase Price</label>
-          <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="1,500,000" value={price} onChange={e => setPrice(e.target.value)} /></div>
+          <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="1,500,000" value={price} onChange={e => setPrice(e.target.value)} /></div>
         </div>
         <div className="nd-field">
           <label className="nd-label">Monthly Rent</label>
-          <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="4,000" value={rent} onChange={e => setRent(e.target.value)} /></div>
+          <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="4,000" value={rent} onChange={e => setRent(e.target.value)} /></div>
         </div>
         <div className="nd-field">
           <label className="nd-label">Vacancy (months/year)</label>
@@ -629,7 +629,7 @@ function RentalYieldCalc() {
         </div>
         <div className="nd-field">
           <label className="nd-label">Annual Expenses (maint, tax...)</label>
-          <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="6,000" value={expenses} onChange={e => setExpenses(e.target.value)} /></div>
+          <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="6,000" value={expenses} onChange={e => setExpenses(e.target.value)} /></div>
         </div>
       </div>
 
@@ -690,7 +690,6 @@ function SellerProceedsCalc() {
     const pct1 = parseInt(split) / 100;
     const pct2 = 1 - pct1;
 
-    // FIXED: Deduct ALL costs from sale price first, then split net pool by ownership %
     const netPool = sp - loan - cpf1 - cpf2 - comm - legal - ssd;
     const seller1Cash = netPool * pct1;
     const seller2Cash = netPool * pct2;
@@ -723,28 +722,28 @@ function SellerProceedsCalc() {
       <div className="nd-grid">
         <div className="nd-field">
           <label className="nd-label">Sale Price</label>
-          <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="1,200,000" value={salePrice} onChange={e => setSalePrice(e.target.value)} /></div>
+          <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="1,200,000" value={salePrice} onChange={e => setSalePrice(e.target.value)} /></div>
         </div>
         <div className="nd-field">
           <label className="nd-label">Outstanding Loan</label>
-          <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="400,000" value={outstanding} onChange={e => setOutstanding(e.target.value)} /></div>
+          <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="400,000" value={outstanding} onChange={e => setOutstanding(e.target.value)} /></div>
         </div>
         <div className="nd-field">
           <label className="nd-label">{sellers === "2" ? "Seller 1 — CPF Principal Used" : "CPF Principal Used"}</label>
-          <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="150,000" value={cpfUsed1} onChange={e => setCpfUsed1(e.target.value)} /></div>
+          <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="150,000" value={cpfUsed1} onChange={e => setCpfUsed1(e.target.value)} /></div>
         </div>
         <div className="nd-field">
           <label className="nd-label">{sellers === "2" ? "Seller 1 — CPF Accrued Interest" : "CPF Accrued Interest"}</label>
-          <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="30,000" value={cpfInterest1} onChange={e => setCpfInterest1(e.target.value)} /></div>
+          <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="30,000" value={cpfInterest1} onChange={e => setCpfInterest1(e.target.value)} /></div>
         </div>
         {sellers === "2" && <>
           <div className="nd-field">
             <label className="nd-label">Seller 2 — CPF Principal Used</label>
-            <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="80,000" value={cpfUsed2} onChange={e => setCpfUsed2(e.target.value)} /></div>
+            <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="80,000" value={cpfUsed2} onChange={e => setCpfUsed2(e.target.value)} /></div>
           </div>
           <div className="nd-field">
             <label className="nd-label">Seller 2 — CPF Accrued Interest</label>
-            <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="15,000" value={cpfInterest2} onChange={e => setCpfInterest2(e.target.value)} /></div>
+            <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="15,000" value={cpfInterest2} onChange={e => setCpfInterest2(e.target.value)} /></div>
           </div>
         </>}
         <div className="nd-field">
@@ -753,7 +752,7 @@ function SellerProceedsCalc() {
         </div>
         <div className="nd-field">
           <label className="nd-label">Legal Fees (est.)</label>
-          <div className="nd-input-wrap"><span className="nd-prefix">S$</span><input className="nd-input" placeholder="3,000" value={legalFees} onChange={e => setLegalFees(e.target.value)} /></div>
+          <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="3,000" value={legalFees} onChange={e => setLegalFees(e.target.value)} /></div>
         </div>
         <div className="nd-field nd-full">
           <label className="nd-label">Held for (SSD period)</label>
