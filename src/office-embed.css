@@ -1,0 +1,284 @@
+:root {
+  --office-bg: #f7f5f2;
+  --office-card: #ffffff;
+  --office-ink: #36454f;
+  --office-muted: #7a858c;
+  --office-soft: #fbf6f0;
+  --office-border: rgba(0, 0, 0, 0.06);
+  --office-accent: #c1956b;
+  --office-accent-dark: #8b6b52;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  background: var(--office-bg) !important;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+.nd-app {
+  min-height: 100vh !important;
+  background:
+    radial-gradient(circle at top left, rgba(193, 149, 107, 0.14), transparent 30%),
+    var(--office-bg) !important;
+  color: var(--office-ink) !important;
+}
+
+.nd-header {
+  position: relative !important;
+  top: auto !important;
+  margin: 24px auto 0 !important;
+  width: min(1100px, calc(100% - 48px)) !important;
+  padding: 22px 26px !important;
+  border: 1px solid var(--office-border) !important;
+  border-radius: 28px !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.05) !important;
+}
+
+.nd-logo {
+  color: var(--office-ink) !important;
+  font-size: 24px !important;
+  letter-spacing: 0.02em !important;
+  text-transform: none !important;
+}
+
+.nd-tagline {
+  margin-top: 6px !important;
+  color: var(--office-muted) !important;
+  font-size: 11px !important;
+  letter-spacing: 0.08em !important;
+}
+
+.nd-badge {
+  border: 1px solid rgba(193, 149, 107, 0.22) !important;
+  border-radius: 999px !important;
+  background: var(--office-soft) !important;
+  color: var(--office-accent-dark) !important;
+  letter-spacing: 0.08em !important;
+}
+
+.nd-tabs {
+  margin: 16px auto 0 !important;
+  width: min(1100px, calc(100% - 48px)) !important;
+  padding: 8px !important;
+  gap: 6px !important;
+  border: 1px solid var(--office-border) !important;
+  border-radius: 24px !important;
+  background: rgba(255, 255, 255, 0.78) !important;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.035) !important;
+}
+
+.nd-tab {
+  border: 0 !important;
+  border-radius: 18px !important;
+  padding: 12px 16px !important;
+  color: var(--office-muted) !important;
+  letter-spacing: 0.06em !important;
+  text-transform: none !important;
+}
+
+.nd-tab:hover {
+  background: var(--office-soft) !important;
+  color: var(--office-ink) !important;
+}
+
+.nd-tab.active {
+  background: #36454f !important;
+  color: #ffffff !important;
+  box-shadow: 0 8px 20px rgba(54, 69, 79, 0.18) !important;
+}
+
+.nd-content {
+  width: min(1100px, calc(100% - 48px)) !important;
+  max-width: 1100px !important;
+  margin: 18px auto 48px !important;
+  padding: 30px !important;
+  border: 1px solid var(--office-border) !important;
+  border-radius: 32px !important;
+  background: rgba(255, 255, 255, 0.86) !important;
+  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.05) !important;
+}
+
+.nd-panel-title {
+  color: var(--office-ink) !important;
+  font-size: 30px !important;
+  letter-spacing: -0.02em !important;
+}
+
+.nd-panel-sub {
+  color: var(--office-muted) !important;
+  margin-bottom: 26px !important;
+}
+
+.nd-grid,
+.nd-grid-3,
+.nd-compare-grid,
+.nd-breakdown {
+  gap: 18px !important;
+}
+
+.nd-label {
+  color: var(--office-muted) !important;
+  letter-spacing: 0.08em !important;
+}
+
+.nd-input,
+.nd-select {
+  min-height: 48px !important;
+  border: 1px solid rgba(54, 69, 79, 0.11) !important;
+  border-radius: 16px !important;
+  background: #ffffff !important;
+  color: var(--office-ink) !important;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.02) !important;
+}
+
+.nd-input:focus,
+.nd-select:focus {
+  border-color: rgba(193, 149, 107, 0.72) !important;
+  box-shadow: 0 0 0 4px rgba(193, 149, 107, 0.12) !important;
+}
+
+.nd-input-wrap .nd-input {
+  padding-left: 42px !important;
+}
+
+.nd-prefix {
+  left: 15px !important;
+  color: var(--office-muted) !important;
+}
+
+.nd-btn {
+  border-radius: 999px !important;
+  background: #36454f !important;
+  box-shadow: 0 10px 22px rgba(54, 69, 79, 0.18) !important;
+  letter-spacing: 0.08em !important;
+}
+
+.nd-btn:hover {
+  background: #2d3a43 !important;
+}
+
+.nd-results {
+  border: 1px solid rgba(54, 69, 79, 0.08) !important;
+  border-radius: 24px !important;
+  background: #36454f !important;
+  box-shadow: 0 16px 34px rgba(54, 69, 79, 0.16) !important;
+}
+
+.nd-results-title,
+.nd-breakdown-label,
+.nd-result-label {
+  color: rgba(255, 255, 255, 0.62) !important;
+}
+
+.nd-result-value {
+  color: #f2d4ad !important;
+  letter-spacing: -0.03em !important;
+}
+
+.nd-note {
+  border-left: 0 !important;
+  border: 1px solid rgba(193, 149, 107, 0.2) !important;
+  border-radius: 18px !important;
+  background: var(--office-soft) !important;
+  color: var(--office-muted) !important;
+}
+
+.nd-segment {
+  gap: 6px !important;
+}
+
+.nd-seg-btn {
+  border: 1px solid rgba(54, 69, 79, 0.1) !important;
+  border-radius: 999px !important;
+  background: #ffffff !important;
+  color: var(--office-muted) !important;
+  text-transform: none !important;
+  letter-spacing: 0.04em !important;
+}
+
+.nd-seg-btn:first-child,
+.nd-seg-btn:last-child {
+  border-radius: 999px !important;
+}
+
+.nd-seg-btn:not(:last-child) {
+  border-right: 1px solid rgba(54, 69, 79, 0.1) !important;
+}
+
+.nd-seg-btn.active {
+  background: #36454f !important;
+  border-color: #36454f !important;
+  color: #ffffff !important;
+}
+
+.nd-compare-card {
+  border-radius: 22px !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.08) !important;
+}
+
+.nd-compare-card.left {
+  background: #36454f !important;
+}
+
+.nd-compare-card.right {
+  background: #8b6b52 !important;
+}
+
+@media (max-width: 760px) {
+  .nd-header,
+  .nd-tabs,
+  .nd-content {
+    width: calc(100% - 28px) !important;
+  }
+
+  .nd-header {
+    margin-top: 14px !important;
+    padding: 18px !important;
+    border-radius: 24px !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+  }
+
+  .nd-logo {
+    font-size: 22px !important;
+  }
+
+  .nd-badge {
+    font-size: 9px !important;
+    padding: 5px 9px !important;
+  }
+
+  .nd-tabs {
+    border-radius: 20px !important;
+    padding: 6px !important;
+  }
+
+  .nd-tab {
+    padding: 10px 13px !important;
+    font-size: 11px !important;
+  }
+
+  .nd-content {
+    margin-top: 14px !important;
+    padding: 20px !important;
+    border-radius: 26px !important;
+  }
+
+  .nd-panel-title {
+    font-size: 25px !important;
+  }
+
+  .nd-result-value {
+    font-size: 34px !important;
+  }
+
+  .nd-btn {
+    width: 100% !important;
+  }
+}
