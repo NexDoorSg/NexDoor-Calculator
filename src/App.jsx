@@ -219,8 +219,34 @@ style.textContent = `
   .nd-seg-btn:not(:last-child) { border-right: none; }
   .nd-seg-btn.active { background: #0D1F3C; border-color: #0D1F3C; color: #FAF8F4; }
 
+  .nd-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; background: white; border: 1.5px solid #E8E4DE; border-radius: 6px; margin-bottom: 20px; }
+  .nd-toggle-label { font-size: 13px; font-weight: 500; color: #0D1F3C; letter-spacing: 0.3px; }
+
+  .nd-section-head { font-family: 'Playfair Display', serif; font-size: 20px; font-weight: 600; color: #0D1F3C; margin: 32px 0 4px; }
+  .nd-section-sub { font-size: 12px; color: #8A8A8A; margin-bottom: 18px; letter-spacing: 0.3px; }
+  .nd-section-head:first-child { margin-top: 0; }
+
+  .nd-slider-row { display: flex; align-items: center; gap: 14px; }
+  .nd-slider { flex: 1; accent-color: #00838F; height: 4px; }
+  .nd-slider-val { font-size: 15px; font-weight: 600; color: #0D1F3C; min-width: 110px; text-align: right; }
+
+  .nd-proj-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 8px; }
+  .nd-proj-card { background: white; border: 1.5px solid #E8E4DE; border-radius: 6px; padding: 18px; border-left: 3px solid #C9A84C; }
+  .nd-proj-name { font-family: 'Playfair Display', serif; font-size: 17px; font-weight: 600; color: #0D1F3C; line-height: 1.25; margin-bottom: 2px; }
+  .nd-proj-district { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: #00838F; font-weight: 600; margin-bottom: 14px; }
+  .nd-proj-price { font-family: 'Playfair Display', serif; font-size: 24px; font-weight: 600; color: #C9A84C; line-height: 1; margin-bottom: 12px; }
+  .nd-proj-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; border-top: 1px solid #F0EDE8; padding-top: 12px; }
+  .nd-proj-meta-label { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: #8A8A8A; margin-bottom: 2px; }
+  .nd-proj-meta-val { font-size: 14px; color: #0D1F3C; font-weight: 500; }
+
+  .nd-spinner { width: 28px; height: 28px; border: 3px solid #E8E4DE; border-top-color: #00838F; border-radius: 50%; animation: nd-spin 0.7s linear infinite; }
+  @keyframes nd-spin { to { transform: rotate(360deg); } }
+  .nd-loading-box { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 48px 20px; }
+  .nd-loading-text { font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; color: #8A8A8A; }
+  .nd-empty-box { padding: 32px 20px; text-align: center; font-size: 13px; color: #8A8A8A; background: white; border: 1.5px dashed #E8E4DE; border-radius: 6px; }
+
   @media (max-width: 640px) {
-    .nd-grid, .nd-grid-3, .nd-compare-grid, .nd-breakdown { grid-template-columns: 1fr; }
+    .nd-grid, .nd-grid-3, .nd-compare-grid, .nd-breakdown, .nd-proj-grid { grid-template-columns: 1fr; }
     .nd-result-value { font-size: 36px; }
     .nd-tabs { padding: 0 16px; }
     .nd-content { padding: 24px 16px 60px; }
@@ -808,6 +834,313 @@ function SellerProceedsCalc() {
   );
 }
 
+// ─── 7. Wealth Planner ────────────────────────────────────────
+const SSD_RATES_WP = { 0: 0, 1: 0.16, 2: 0.12, 3: 0.08, 4: 0.04 };
+const PROFILE_TO_ABSD = { SC: "SC", SPR: "SPR", FR: "FR" };
+const TYPE_TO_CATEGORY = { HDB: "hdb", Condo: "condo", EC: "ec", Landed: "landed" };
+const PROJECT_MATCHER_URL = "https://homevalue.nexdoor.sg/api/project-matcher";
+
+function WealthPlannerCalc() {
+  // Section A — selling
+  const [selling, setSelling] = useState(false);
+  const [curValue, setCurValue] = useState("");
+  const [loanBal, setLoanBal] = useState("");
+  const [cpfPrincipal, setCpfPrincipal] = useState("");
+  const [cpfInterest, setCpfInterest] = useState("");
+  const [commRate, setCommRate] = useState("2.0");
+  const [legalFees, setLegalFees] = useState("3000");
+  const [ssdYears, setSsdYears] = useState("0");
+
+  // Section B — buyer
+  const [age, setAge] = useState("");
+  const [income, setIncome] = useState("");
+  const [coBorrower, setCoBorrower] = useState(false);
+  const [coIncome, setCoIncome] = useState("");
+  const [debt, setDebt] = useState("");
+  const [citizenship, setCitizenship] = useState("SC");
+  const [propCount, setPropCount] = useState("1");
+  const [propType, setPropType] = useState("Condo");
+  const [rate, setRate] = useState("4.0");
+  const [tenure, setTenure] = useState("25");
+  const [reserves, setReserves] = useState(50000);
+
+  // Section C — projects
+  const [loading, setLoading] = useState(false);
+  const [projects, setProjects] = useState(null);
+  const [fetchError, setFetchError] = useState(null);
+
+  // ── Section A: net cash proceeds ──
+  const sp = parseFloat(curValue) || 0;
+  const netProceeds = selling
+    ? sp
+      - (parseFloat(loanBal) || 0)
+      - (parseFloat(cpfPrincipal) || 0)
+      - (parseFloat(cpfInterest) || 0)
+      - sp * (parseFloat(commRate) || 0) / 100
+      - (parseFloat(legalFees) || 0)
+      - sp * (SSD_RATES_WP[Math.min(parseInt(ssdYears) || 0, 4)] || 0)
+    : 0;
+
+  // ── Section B: loan, stamp duties, budget ──
+  const mi = (parseFloat(income) || 0) + (coBorrower ? (parseFloat(coIncome) || 0) : 0);
+  const md = parseFloat(debt) || 0;
+  const r = (parseFloat(rate) || 0) / 100 / 12;
+  const n = (parseInt(tenure) || 0) * 12;
+  const isHdbEc = propType === "HDB" || propType === "EC";
+
+  const tdsrRepayment = mi * 0.55 - md;
+  const msrRepayment = isHdbEc ? mi * 0.30 : Infinity;
+  const maxRepayment = Math.max(0, Math.min(tdsrRepayment, msrRepayment));
+  const maxLoan = (r > 0 && n > 0) ? maxRepayment * ((Math.pow(1 + r, n) - 1) / (r * Math.pow(1 + r, n))) : 0;
+
+  // Estimated purchase price at 75% LTV, used to size stamp duties.
+  const estPrice = maxLoan / 0.75;
+  const bsd = estPrice > 0 ? calcBSD(estPrice) : 0;
+  const absd = estPrice > 0 ? getABSD(PROFILE_TO_ABSD[citizenship], parseInt(propCount), estPrice) : 0;
+
+  const availableBudget = netProceeds + maxLoan - reserves - absd - bsd;
+
+  const findProjects = async () => {
+    setLoading(true);
+    setFetchError(null);
+    setProjects(null);
+    try {
+      const budget = Math.max(0, Math.round(availableBudget));
+      const category = TYPE_TO_CATEGORY[propType];
+      const url = `${PROJECT_MATCHER_URL}?budget=${budget}&category=${category}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      const data = await res.json();
+      setProjects(data.results || []);
+    } catch (err) {
+      setFetchError(err.message || "Unable to load matching projects.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fmtDate = (d) => {
+    if (!d) return "—";
+    const date = new Date(d);
+    if (isNaN(date)) return "—";
+    return date.toLocaleDateString("en-SG", { month: "short", year: "numeric" });
+  };
+
+  return (
+    <div>
+      <h2 className="nd-panel-title">Wealth Planner</h2>
+      <p className="nd-panel-sub">Plan your next purchase — from sale proceeds to a shortlist of projects you can afford</p>
+
+      {/* ── Section A ── */}
+      <h3 className="nd-section-head" style={{marginTop: 0}}>Current Property</h3>
+      <p className="nd-section-sub">If you're selling, we'll roll your net proceeds into your budget</p>
+
+      <div className="nd-toggle-row">
+        <span className="nd-toggle-label">I am selling a property</span>
+        <div className="nd-segment" style={{marginBottom: 0, width: 180}}>
+          <button className={`nd-seg-btn ${selling ? "active" : ""}`} onClick={() => setSelling(true)}>Yes</button>
+          <button className={`nd-seg-btn ${!selling ? "active" : ""}`} onClick={() => setSelling(false)}>No</button>
+        </div>
+      </div>
+
+      {selling && (
+        <>
+          <div className="nd-grid">
+            <div className="nd-field">
+              <label className="nd-label">Current Property Value</label>
+              <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="1,200,000" value={curValue} onChange={e => setCurValue(e.target.value)} /></div>
+            </div>
+            <div className="nd-field">
+              <label className="nd-label">Outstanding Loan Balance</label>
+              <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="400,000" value={loanBal} onChange={e => setLoanBal(e.target.value)} /></div>
+            </div>
+            <div className="nd-field">
+              <label className="nd-label">CPF Principal Used</label>
+              <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="150,000" value={cpfPrincipal} onChange={e => setCpfPrincipal(e.target.value)} /></div>
+            </div>
+            <div className="nd-field">
+              <label className="nd-label">CPF Accrued Interest</label>
+              <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="30,000" value={cpfInterest} onChange={e => setCpfInterest(e.target.value)} /></div>
+            </div>
+            <div className="nd-field">
+              <label className="nd-label">Agent Commission (%)</label>
+              <input className="nd-input" placeholder="2.0" value={commRate} onChange={e => setCommRate(e.target.value)} />
+            </div>
+            <div className="nd-field">
+              <label className="nd-label">Legal Fees (est.)</label>
+              <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="3,000" value={legalFees} onChange={e => setLegalFees(e.target.value)} /></div>
+            </div>
+            <div className="nd-field nd-full">
+              <label className="nd-label">Held for (SSD period)</label>
+              <div className="nd-segment" style={{marginBottom: 0}}>
+                {[["0","No SSD"],["1","Year 1 (16%)"],["2","Year 2 (12%)"],["3","Year 3 (8%)"],["4","Year 4 (4%)"]].map(([v, l]) => (
+                  <button key={v} className={`nd-seg-btn ${ssdYears === v ? "active" : ""}`} onClick={() => setSsdYears(v)} style={{fontSize: 10}}>{l}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="nd-results" style={{marginTop: 8}}>
+            <p className="nd-results-title">Net Cash Proceeds from Sale</p>
+            <div className="nd-result-main">
+              <div>
+                <p className="nd-result-label">Cash freed up toward your next home</p>
+                <div className="nd-result-value" style={{fontSize: 36, color: netProceeds < 0 ? "#ef5350" : "#C9A84C"}}>{fmtS(netProceeds)}</div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Section B ── */}
+      <h3 className="nd-section-head">Buyer Profile</h3>
+      <p className="nd-section-sub">We size your loan via TDSR / MSR and net off stamp duties</p>
+
+      <div style={{display:"flex", gap:12, marginBottom:20, flexWrap:"wrap"}}>
+        <div className="nd-segment" style={{flex:1, minWidth:200}}>
+          <button className={`nd-seg-btn ${!coBorrower ? "active" : ""}`} onClick={() => setCoBorrower(false)}>Solo</button>
+          <button className={`nd-seg-btn ${coBorrower ? "active" : ""}`} onClick={() => setCoBorrower(true)}>+ Co-borrower</button>
+        </div>
+      </div>
+
+      <div className="nd-grid">
+        <div className="nd-field">
+          <label className="nd-label">Age</label>
+          <input className="nd-input" placeholder="35" value={age} onChange={e => setAge(e.target.value)} />
+        </div>
+        <div className="nd-field">
+          <label className="nd-label">{coBorrower ? "Your Gross Monthly Income" : "Gross Monthly Income"}</label>
+          <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="8,000" value={income} onChange={e => setIncome(e.target.value)} /></div>
+        </div>
+        {coBorrower && (
+          <div className="nd-field">
+            <label className="nd-label">Co-borrower Gross Monthly Income</label>
+            <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="6,000" value={coIncome} onChange={e => setCoIncome(e.target.value)} /></div>
+          </div>
+        )}
+        <div className="nd-field">
+          <label className="nd-label">Existing Monthly Debt</label>
+          <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="500" value={debt} onChange={e => setDebt(e.target.value)} /></div>
+        </div>
+        <div className="nd-field">
+          <label className="nd-label">Citizenship</label>
+          <select className="nd-select" value={citizenship} onChange={e => setCitizenship(e.target.value)}>
+            <option value="SC">Singapore Citizen</option>
+            <option value="SPR">Singapore PR</option>
+            <option value="FR">Foreigner</option>
+          </select>
+        </div>
+        <div className="nd-field">
+          <label className="nd-label">Property Type</label>
+          <select className="nd-select" value={propType} onChange={e => setPropType(e.target.value)}>
+            {["HDB","Condo","EC","Landed"].map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+        <div className="nd-field nd-full">
+          <label className="nd-label">Property Count (including this purchase)</label>
+          <div className="nd-segment" style={{marginBottom: 0}}>
+            {["1","2","3"].map(nn => (
+              <button key={nn} className={`nd-seg-btn ${propCount === nn ? "active" : ""}`} onClick={() => setPropCount(nn)}>
+                {nn === "3" ? "3rd+" : `${nn}${nn === "1" ? "st" : "nd"}`}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="nd-field">
+          <label className="nd-label">Interest Rate (% p.a.)</label>
+          <input className="nd-input" placeholder="4.0" value={rate} onChange={e => setRate(e.target.value)} />
+        </div>
+        <div className="nd-field">
+          <label className="nd-label">Loan Tenure (years)</label>
+          <input className="nd-input" placeholder="25" value={tenure} onChange={e => setTenure(e.target.value)} />
+        </div>
+        <div className="nd-field nd-full">
+          <label className="nd-label">Cash Reserves to Keep Aside</label>
+          <div className="nd-slider-row">
+            <input className="nd-slider" type="range" min="0" max="500000" step="10000" value={reserves} onChange={e => setReserves(parseInt(e.target.value))} />
+            <span className="nd-slider-val">{fmtS(reserves)}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="nd-results" style={{marginTop: 8}}>
+        <p className="nd-results-title">Available Budget</p>
+        <div className="nd-result-main">
+          <div>
+            <p className="nd-result-label">Estimated maximum you can put toward a {propType}</p>
+            <div className="nd-result-value" style={{color: availableBudget < 0 ? "#ef5350" : "#C9A84C"}}>{fmtS(availableBudget)}</div>
+          </div>
+        </div>
+        <div className="nd-breakdown">
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Net Sale Proceeds</p><p className="nd-breakdown-val">{selling ? fmtS(netProceeds) : "—"}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Max Loan ({isHdbEc ? "MSR 30%" : "TDSR 55%"})</p><p className="nd-breakdown-val">{fmtS(maxLoan)}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Cash Reserves Held</p><p className="nd-breakdown-val">− {fmtS(reserves)}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">BSD</p><p className="nd-breakdown-val">− {fmtS(bsd)}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">ABSD</p><p className="nd-breakdown-val">{absd === 0 ? "—" : `− ${fmtS(absd)}`}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Est. Purchase Price (75% LTV)</p><p className="nd-breakdown-val">{fmtS(estPrice)}</p></div>
+        </div>
+        <p className="nd-note" style={{marginTop: 16, color: "rgba(250,248,244,0.55)", background: "rgba(255,255,255,0.04)", borderLeftColor: "#C9A84C"}}>
+          Net Proceeds {fmtS(netProceeds)} + Max Loan {fmtS(maxLoan)} − Reserves {fmtS(reserves)} − Stamp Duties {fmtS(bsd + absd)} = <strong style={{color:"#C9A84C"}}>{fmtS(availableBudget)}</strong>
+        </p>
+      </div>
+
+      {/* ── Section C ── */}
+      <h3 className="nd-section-head">Project Shortlist</h3>
+      <p className="nd-section-sub">Real transacted projects within your budget over the last 24 months</p>
+
+      <button className="nd-btn" onClick={findProjects} disabled={loading}>
+        {loading ? "Finding…" : "Find Matching Projects →"}
+      </button>
+
+      {loading && (
+        <div className="nd-loading-box">
+          <div className="nd-spinner" />
+          <p className="nd-loading-text">Matching projects to your budget</p>
+        </div>
+      )}
+
+      {!loading && fetchError && (
+        <div className="nd-empty-box" style={{marginTop: 20, borderColor: "#ef5350", color: "#c62828"}}>{fetchError}</div>
+      )}
+
+      {!loading && projects && projects.length === 0 && (
+        <div className="nd-empty-box" style={{marginTop: 20}}>No matching projects found in this budget range. Try adjusting your reserves or property type.</div>
+      )}
+
+      {!loading && projects && projects.length > 0 && (
+        <div className="nd-proj-grid">
+          {projects.map((p, i) => (
+            <div className="nd-proj-card" key={`${p.name}-${i}`}>
+              <div className="nd-proj-name">{p.name}</div>
+              <div className="nd-proj-district">{p.district || "—"}</div>
+              <div className="nd-proj-price">{fmtS(p.medianPrice)}</div>
+              <div className="nd-proj-meta">
+                <div>
+                  <p className="nd-proj-meta-label">Median PSF</p>
+                  <p className="nd-proj-meta-val">{p.medianPsf ? `S$ ${fmt(p.medianPsf)}` : "—"}</p>
+                </div>
+                <div>
+                  <p className="nd-proj-meta-label">Transactions</p>
+                  <p className="nd-proj-meta-val">{p.txCount}</p>
+                </div>
+                <div>
+                  <p className="nd-proj-meta-label">Last Sold</p>
+                  <p className="nd-proj-meta-val">{fmtDate(p.lastTxDate)}</p>
+                </div>
+                <div>
+                  <p className="nd-proj-meta-label">District</p>
+                  <p className="nd-proj-meta-val">{p.district || "—"}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <p className="nd-note">Budget combines your net sale proceeds, max loan (TDSR 55%, or MSR 30% for HDB/EC), less cash reserves and stamp duties (BSD + ABSD on an estimated 75%-LTV purchase price). Project matches reflect median transacted prices and are indicative — actual affordability and pricing subject to bank and valuation assessment.</p>
+    </div>
+  );
+}
+
 // ─── App Shell ────────────────────────────────────────────────
 const TABS = [
   { id: "afford", label: "Affordability", component: AffordabilityCalc },
@@ -816,6 +1149,7 @@ const TABS = [
   { id: "cpf", label: "CPF vs Cash", component: CpfCashCalc },
   { id: "yield", label: "Rental Yield", component: RentalYieldCalc },
   { id: "seller", label: "Net Proceeds", component: SellerProceedsCalc },
+  { id: "wealth", label: "Wealth Planner", component: WealthPlannerCalc },
 ];
 
 export default function App() {
