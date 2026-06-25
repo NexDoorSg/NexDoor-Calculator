@@ -238,6 +238,8 @@ style.textContent = `
   .nd-proj-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; border-top: 1px solid #F0EDE8; padding-top: 12px; }
   .nd-proj-meta-label { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: #8A8A8A; margin-bottom: 2px; }
   .nd-proj-meta-val { font-size: 14px; color: #0D1F3C; font-weight: 500; }
+  .nd-proj-size { margin-top: 12px; padding-top: 12px; border-top: 1px solid #F0EDE8; font-size: 12px; color: #8A8A8A; letter-spacing: 0.3px; }
+  .nd-proj-size strong { color: #0D1F3C; font-weight: 600; }
 
   .nd-spinner { width: 28px; height: 28px; border: 3px solid #E8E4DE; border-top-color: #00838F; border-radius: 50%; animation: nd-spin 0.7s linear infinite; }
   @keyframes nd-spin { to { transform: rotate(360deg); } }
@@ -840,6 +842,16 @@ const PROFILE_TO_ABSD = { SC: "SC", SPR: "SPR", FR: "FR" };
 const TYPE_TO_CATEGORY = { HDB: "hdb", Condo: "condo", EC: "ec", Landed: "landed" };
 const PROJECT_MATCHER_URL = "https://homevalue.nexdoor.sg/api/project-matcher";
 
+// Preferred size options -> sqft band sent to the project-matcher API.
+const SIZE_OPTIONS = [
+  { id: "any",          label: "Any size",                       sizeMin: null, sizeMax: null },
+  { id: "small",        label: "Up to 600 sqft (Studio / 1-bed)", sizeMin: null, sizeMax: 600 },
+  { id: "medium_small", label: "600–800 sqft (Compact 2-bed)",   sizeMin: 600,  sizeMax: 800 },
+  { id: "medium",       label: "800–1,000 sqft (Standard 2-bed)", sizeMin: 800,  sizeMax: 1000 },
+  { id: "large",        label: "1,000–1,300 sqft (3-bed)",        sizeMin: 1000, sizeMax: 1300 },
+  { id: "xlarge",       label: "1,300 sqft+ (4-bed+)",            sizeMin: 1300, sizeMax: null },
+];
+
 function WealthPlannerCalc() {
   // Section A — selling
   const [selling, setSelling] = useState(false);
@@ -860,6 +872,7 @@ function WealthPlannerCalc() {
   const [citizenship, setCitizenship] = useState("SC");
   const [propCount, setPropCount] = useState("1");
   const [propType, setPropType] = useState("Condo");
+  const [prefSize, setPrefSize] = useState("any");
   const [rate, setRate] = useState("4.0");
   const [tenure, setTenure] = useState("25");
   const [reserves, setReserves] = useState(50000);
@@ -887,6 +900,7 @@ function WealthPlannerCalc() {
   const r = (parseFloat(rate) || 0) / 100 / 12;
   const n = (parseInt(tenure) || 0) * 12;
   const isHdbEc = propType === "HDB" || propType === "EC";
+  const showSizeSelector = propType !== "Landed";
 
   const tdsrRepayment = mi * 0.55 - md;
   const msrRepayment = isHdbEc ? mi * 0.30 : Infinity;
@@ -907,7 +921,14 @@ function WealthPlannerCalc() {
     try {
       const budget = Math.max(0, Math.round(availableBudget));
       const category = TYPE_TO_CATEGORY[propType];
-      const url = `${PROJECT_MATCHER_URL}?budget=${budget}&category=${category}`;
+      const params = new URLSearchParams({ budget: String(budget), category });
+      // Size preference only applies to non-landed types.
+      const size = SIZE_OPTIONS.find(o => o.id === prefSize);
+      if (showSizeSelector && size) {
+        if (size.sizeMin != null) params.set("sizeMin", String(size.sizeMin));
+        if (size.sizeMax != null) params.set("sizeMax", String(size.sizeMax));
+      }
+      const url = `${PROJECT_MATCHER_URL}?${params.toString()}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       const data = await res.json();
@@ -924,6 +945,15 @@ function WealthPlannerCalc() {
     const date = new Date(d);
     if (isNaN(date)) return "—";
     return date.toLocaleDateString("en-SG", { month: "short", year: "numeric" });
+  };
+
+  const fmtTypicalSize = (p) => {
+    const lo = p.typicalSizeMin, hi = p.typicalSizeMax;
+    if (lo == null && hi == null) return "—";
+    if (lo == null) return `${fmt(hi)} sqft`;
+    if (hi == null) return `${fmt(lo)} sqft`;
+    if (lo === hi) return `${fmt(lo)} sqft`;
+    return `${fmt(lo)}–${fmt(hi)} sqft`;
   };
 
   return (
@@ -1035,6 +1065,14 @@ function WealthPlannerCalc() {
             {["HDB","Condo","EC","Landed"].map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
+        {showSizeSelector && (
+          <div className="nd-field">
+            <label className="nd-label">Preferred Size</label>
+            <select className="nd-select" value={prefSize} onChange={e => setPrefSize(e.target.value)}>
+              {SIZE_OPTIONS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
+          </div>
+        )}
         <div className="nd-field nd-full">
           <label className="nd-label">Property Count (including this purchase)</label>
           <div className="nd-segment" style={{marginBottom: 0}}>
@@ -1131,6 +1169,7 @@ function WealthPlannerCalc() {
                   <p className="nd-proj-meta-val">{p.district || "—"}</p>
                 </div>
               </div>
+              <div className="nd-proj-size">Typical size: <strong>{fmtTypicalSize(p)}</strong></div>
             </div>
           ))}
         </div>
