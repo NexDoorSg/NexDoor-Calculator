@@ -259,6 +259,9 @@ style.textContent = `
   .nd-loading-text { font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; color: #8A8A8A; }
   .nd-empty-box { padding: 32px 20px; text-align: center; font-size: 13px; color: #8A8A8A; background: white; border: 1.5px dashed #E8E4DE; border-radius: 6px; }
 
+  .mrt-tooltip { background: white; border: none; box-shadow: 0 2px 6px rgba(0,0,0,0.2); font-size: 11px; font-weight: 600; padding: 3px 7px; border-radius: 4px; }
+  .mrt-tooltip::before { display: none; }
+
   @media (max-width: 640px) {
     .nd-grid, .nd-grid-3, .nd-compare-grid, .nd-breakdown, .nd-proj-grid { grid-template-columns: 1fr; }
     .nd-district-grid { grid-template-columns: repeat(2, 1fr); }
@@ -869,6 +872,18 @@ function haversineM(lat1, lon1, lat2, lon2) {
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
+// Official MRT/LRT line colours, used for station markers and the map legend.
+const MRT_LINE_COLORS = {
+  NSL: "#D42E12",
+  EWL: "#009645",
+  NEL: "#9900AA",
+  CCL: "#FA9E0D",
+  DTL: "#005EC4",
+  TEL: "#9D5B25",
+  CRL: "#009AA6",
+  JRL: "#0099AA",
+};
+
 // Static MRT/LRT station dataset (open + future CRL/JRL) used for the map's MRT
 // layer — filtered client-side, no API call.
 const MRT_STATIONS = [
@@ -1254,13 +1269,14 @@ function WealthPlannerCalc() {
       });
       nearest.forEach(s => {
         const future = s.status === "future";
+        const lineColor = MRT_LINE_COLORS[s.line] || "#00838F";
         const marker = L.circleMarker([s.lat, s.lon], future
-          ? { radius: 7, color: "#C9A84C", fillColor: "#C9A84C", fillOpacity: 0.15, weight: 2, dashArray: "5" }
-          : { radius: 7, color: "#00838F", fillColor: "#00838F", fillOpacity: 0.85, weight: 2 }
+          ? { radius: 9, color: lineColor, fillColor: lineColor, fillOpacity: 0.3, weight: 2.5, dashArray: "5" }
+          : { radius: 9, color: "#FFFFFF", fillColor: lineColor, fillOpacity: 0.9, weight: 2 }
         ).addTo(mapRef.current);
-        marker.bindPopup(future
-          ? `<strong>${s.name}</strong> (${s.line}) — coming soon — ${s.dist}m away`
-          : `<strong>${s.name}</strong> (${s.line}) — ${s.dist}m away`
+        marker.bindTooltip(s.name, { permanent: false, direction: "top", className: "mrt-tooltip" });
+        marker.bindPopup(
+          `<b>${s.name}</b><br><span style="color:${lineColor}">${s.line}</span> • ${s.dist}m away${future ? " (Coming soon)" : ""}`
         );
         amenityMarkersRef.current.push(marker);
       });
@@ -1607,15 +1623,26 @@ function WealthPlannerCalc() {
                   </button>
                 ))}
               </div>
-              <div style={{display: "flex", gap: 18, alignItems: "center", marginTop: 10, fontSize: 12, color: "#8A8A8A"}}>
-                <span style={{display: "inline-flex", alignItems: "center", gap: 6}}>
-                  <span style={{width: 12, height: 12, borderRadius: "50%", background: "#00838F", display: "inline-block"}} />
-                  Open MRT/LRT
-                </span>
-                <span style={{display: "inline-flex", alignItems: "center", gap: 6}}>
-                  <span style={{width: 12, height: 12, borderRadius: "50%", border: "2px dashed #C9A84C", background: "rgba(201,168,76,0.15)", display: "inline-block"}} />
-                  Future station (CRL/JRL)
-                </span>
+              <div style={{display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", marginTop: 10, fontSize: 12, color: "#8A8A8A"}}>
+                {[
+                  {line: "NSL", label: "NSL"},
+                  {line: "EWL", label: "EWL"},
+                  {line: "NEL", label: "NEL"},
+                  {line: "CCL", label: "CCL"},
+                  {line: "DTL", label: "DTL"},
+                  {line: "TEL", label: "TEL"},
+                  {line: "CRL", label: "CRL (future)", future: true},
+                  {line: "JRL", label: "JRL (future)", future: true},
+                ].map(item => (
+                  <span key={item.line} style={{display: "inline-flex", alignItems: "center", gap: 6}}>
+                    <span style={{
+                      width: 12, height: 12, borderRadius: "50%", display: "inline-block",
+                      background: item.future ? "transparent" : MRT_LINE_COLORS[item.line],
+                      border: item.future ? `2px dashed ${MRT_LINE_COLORS[item.line]}` : "none",
+                    }} />
+                    {item.label}
+                  </span>
+                ))}
               </div>
               {amenityError && (
                 <div className="nd-empty-box" style={{marginTop: 10, borderColor: "#ef5350", color: "#c62828"}}>{amenityError}</div>
