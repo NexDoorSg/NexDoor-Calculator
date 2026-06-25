@@ -944,6 +944,10 @@ function WealthPlannerCalc() {
   const mapRef = useRef(null);
   const amenityMarkersRef = useRef([]);
   const selectedCoordRef = useRef(null); // last-clicked project's { lat, lon }
+  // Mirror the active amenity type into a ref so the map's marker click handlers
+  // (created once in the effect) always read the *current* type, not a stale one.
+  const amenityTypeRef = useRef(amenityType);
+  amenityTypeRef.current = amenityType;
 
   // ── Section A: net cash proceeds ──
   const sp = parseFloat(curValue) || 0;
@@ -1096,10 +1100,10 @@ function WealthPlannerCalc() {
       const marker = L.marker([p.lat, p.lon]).addTo(map);
       marker.bindPopup(projectPopupHtml(p));
       marker.on("click", () => {
-        // On each project click, default back to MRT.
+        // Fetch for whichever amenity tab is currently active — don't force a
+        // type or auto-switch the tab.
         selectedCoordRef.current = { lat: p.lat, lon: p.lon };
-        setAmenityType("mrt");
-        loadAmenities(p.lat, p.lon, "mrt");
+        loadAmenities(p.lat, p.lon, amenityTypeRef.current);
       });
     });
 
