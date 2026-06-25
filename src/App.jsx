@@ -241,6 +241,18 @@ style.textContent = `
   .nd-proj-size { margin-top: 12px; padding-top: 12px; border-top: 1px solid #F0EDE8; font-size: 12px; color: #8A8A8A; letter-spacing: 0.3px; }
   .nd-proj-size strong { color: #0D1F3C; font-weight: 600; }
 
+  .nd-district-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .nd-district-link { background: none; border: none; color: #00838F; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; padding: 0; }
+  .nd-district-link:hover { color: #0D1F3C; }
+  .nd-district-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 20px; }
+  .nd-district-item { display: flex; align-items: flex-start; gap: 7px; padding: 8px 10px; background: white; border: 1.5px solid #E8E4DE; border-radius: 5px; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
+  .nd-district-item:hover { border-color: #00838F; }
+  .nd-district-item.active { border-color: #0D1F3C; background: #F0EDE8; }
+  .nd-district-item input { margin-top: 2px; accent-color: #00838F; cursor: pointer; flex-shrink: 0; }
+  .nd-district-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .nd-district-code { font-size: 12px; font-weight: 600; color: #0D1F3C; }
+  .nd-district-name { font-size: 10px; color: #8A8A8A; line-height: 1.25; }
+
   .nd-spinner { width: 28px; height: 28px; border: 3px solid #E8E4DE; border-top-color: #00838F; border-radius: 50%; animation: nd-spin 0.7s linear infinite; }
   @keyframes nd-spin { to { transform: rotate(360deg); } }
   .nd-loading-box { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 48px 20px; }
@@ -249,6 +261,7 @@ style.textContent = `
 
   @media (max-width: 640px) {
     .nd-grid, .nd-grid-3, .nd-compare-grid, .nd-breakdown, .nd-proj-grid { grid-template-columns: 1fr; }
+    .nd-district-grid { grid-template-columns: repeat(2, 1fr); }
     .nd-result-value { font-size: 36px; }
     .nd-tabs { padding: 0 16px; }
     .nd-content { padding: 24px 16px 60px; }
@@ -845,6 +858,38 @@ const PROJECT_MATCHER_URL = "https://homevalue.nexdoor.sg/api/project-matcher";
 // Map + nearby-amenities config.
 const SG_CENTER = [1.3521, 103.8198];
 const NEARBY_AMENITIES_URL = "https://homevalue.nexdoor.sg/api/nearby-amenities";
+
+// All 28 Singapore postal districts (matches the API's district codes).
+const DISTRICTS = [
+  { code: "D01", name: "Raffles Place, Marina" },
+  { code: "D02", name: "Tanjong Pagar" },
+  { code: "D03", name: "Queenstown, Tiong Bahru" },
+  { code: "D04", name: "Harbourfront, Telok Blangah" },
+  { code: "D05", name: "Buona Vista, West Coast" },
+  { code: "D06", name: "City Hall, Clarke Quay" },
+  { code: "D07", name: "Beach Road, Bugis" },
+  { code: "D08", name: "Farrer Park, Serangoon Road" },
+  { code: "D09", name: "Orchard, River Valley" },
+  { code: "D10", name: "Holland, Bukit Timah" },
+  { code: "D11", name: "Newton, Novena" },
+  { code: "D12", name: "Toa Payoh, Balestier" },
+  { code: "D13", name: "Macpherson, Potong Pasir" },
+  { code: "D14", name: "Geylang, Paya Lebar" },
+  { code: "D15", name: "East Coast, Marine Parade" },
+  { code: "D16", name: "Bedok, Upper East Coast" },
+  { code: "D17", name: "Changi, Loyang" },
+  { code: "D18", name: "Tampines, Pasir Ris" },
+  { code: "D19", name: "Serangoon, Hougang, Punggol" },
+  { code: "D20", name: "Bishan, Ang Mo Kio" },
+  { code: "D21", name: "Clementi, Upper Bukit Timah" },
+  { code: "D22", name: "Boon Lay, Jurong" },
+  { code: "D23", name: "Bukit Batok, Bukit Panjang" },
+  { code: "D24", name: "Lim Chu Kang, Tengah" },
+  { code: "D25", name: "Kranji, Woodlands" },
+  { code: "D26", name: "Upper Thomson, Springleaf" },
+  { code: "D27", name: "Yishun, Sembawang" },
+  { code: "D28", name: "Seletar, Punggol North" },
+];
 const AMENITY_TYPES = [
   { id: "mrt", label: "MRT" },
   { id: "school", label: "Schools" },
@@ -890,6 +935,7 @@ function WealthPlannerCalc() {
   const [loading, setLoading] = useState(false);
   const [projects, setProjects] = useState(null);
   const [fetchError, setFetchError] = useState(null);
+  const [selectedDistricts, setSelectedDistricts] = useState([]); // [] = island-wide
   const [viewMode, setViewMode] = useState("list"); // "list" | "map"
   const [amenityType, setAmenityType] = useState("mrt"); // "mrt" | "school" | "hawker"
 
@@ -945,6 +991,7 @@ function WealthPlannerCalc() {
         if (size.sizeMin != null) params.set("sizeMin", String(size.sizeMin));
         if (size.sizeMax != null) params.set("sizeMax", String(size.sizeMax));
       }
+      if (selectedDistricts.length > 0) params.set("districts", selectedDistricts.join(","));
       const url = `${PROJECT_MATCHER_URL}?${params.toString()}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
@@ -1011,6 +1058,16 @@ function WealthPlannerCalc() {
     } catch {
       /* network failure → simply show no amenity markers */
     }
+  };
+
+  const toggleDistrict = (code) => {
+    setSelectedDistricts(prev =>
+      prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
+    );
+  };
+  const allDistrictsSelected = selectedDistricts.length === DISTRICTS.length;
+  const toggleAllDistricts = () => {
+    setSelectedDistricts(allDistrictsSelected ? [] : DISTRICTS.map(d => d.code));
   };
 
   // Toggle the amenity type and refresh markers for the currently-selected project.
@@ -1227,6 +1284,27 @@ function WealthPlannerCalc() {
       {/* ── Section C ── */}
       <h3 className="nd-section-head">Project Shortlist</h3>
       <p className="nd-section-sub">Real transacted projects within your budget over the last 24 months</p>
+
+      <div className="nd-district-head">
+        <label className="nd-label">Preferred Districts {selectedDistricts.length > 0 ? `(${selectedDistricts.length})` : "(all)"}</label>
+        <button className="nd-district-link" onClick={toggleAllDistricts}>
+          {allDistrictsSelected ? "Clear All" : "Select All"}
+        </button>
+      </div>
+      <div className="nd-district-grid">
+        {DISTRICTS.map(d => {
+          const active = selectedDistricts.includes(d.code);
+          return (
+            <label key={d.code} className={`nd-district-item ${active ? "active" : ""}`}>
+              <input type="checkbox" checked={active} onChange={() => toggleDistrict(d.code)} />
+              <span className="nd-district-text">
+                <span className="nd-district-code">{d.code}</span>
+                <span className="nd-district-name">{d.name}</span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
 
       <button className="nd-btn" onClick={findProjects} disabled={loading}>
         {loading ? "Finding…" : "Find Matching Projects →"}
