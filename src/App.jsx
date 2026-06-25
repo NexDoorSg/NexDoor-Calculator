@@ -844,21 +844,12 @@ const PROJECT_MATCHER_URL = "https://homevalue.nexdoor.sg/api/project-matcher";
 
 // Map + nearby-amenities config.
 const SG_CENTER = [1.3521, 103.8198];
-const ONEMAP_MRT_URL = "https://www.onemap.gov.sg/api/public/themesvc/retrieveTheme?queryName=mrt_lrt_station";
-// OneMap's themesvc requires a Bearer token (register at onemap.gov.sg). Leave
-// blank to disable nearby-MRT lookups gracefully, or set a token to enable them.
-const ONEMAP_TOKEN = "";
-const AMENITY_RADIUS_M = 500;
-
-// Haversine distance in metres between two [lat, lon] points.
-function distanceM(lat1, lon1, lat2, lon2) {
-  const R = 6371000;
-  const toRad = (d) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(a));
-}
+const NEARBY_AMENITIES_URL = "https://homevalue.nexdoor.sg/api/nearby-amenities";
+const AMENITY_TYPES = [
+  { id: "mrt", label: "MRT" },
+  { id: "school", label: "Schools" },
+  { id: "hawker", label: "Hawkers" },
+];
 
 // Preferred size options -> sqft band sent to the project-matcher API.
 const SIZE_OPTIONS = [
@@ -900,11 +891,13 @@ function WealthPlannerCalc() {
   const [projects, setProjects] = useState(null);
   const [fetchError, setFetchError] = useState(null);
   const [viewMode, setViewMode] = useState("list"); // "list" | "map"
+  const [amenityType, setAmenityType] = useState("mrt"); // "mrt" | "school" | "hawker"
 
   // Leaflet map instance + marker bookkeeping (refs so re-renders don't reset).
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   const amenityMarkersRef = useRef([]);
+  const selectedCoordRef = useRef(null); // last-clicked project's { lat, lon }
 
   // ── Section A: net cash proceeds ──
   const sp = parseFloat(curValue) || 0;
@@ -996,38 +989,35 @@ function WealthPlannerCalc() {
     amenityMarkersRef.current = [];
   };
 
-  // Fetch MRT/LRT stations from OneMap and plot those within 500m as teal dots.
-  const loadNearbyMRT = async (lat, lon) => {
+  // Fetch nearby amenities of `type` around a project and plot them as teal dots.
+  const loadAmenities = async (lat, lon, type) => {
     clearAmenityMarkers();
     const L = window.L;
     if (!mapRef.current || !L) return;
     try {
-      const headers = ONEMAP_TOKEN ? { Authorization: `Bearer ${ONEMAP_TOKEN}` } : {};
-      const res = await fetch(ONEMAP_MRT_URL, { headers });
+      const res = await fetch(`${NEARBY_AMENITIES_URL}?lat=${lat}&lon=${lon}&type=${type}`);
       if (!res.ok) return;
       const data = await res.json();
-      // SrchResults[0] is a summary record; the rest are stations.
-      const stations = Array.isArray(data.SrchResults) ? data.SrchResults.slice(1) : [];
-      stations.forEach(s => {
-        let slat, slon;
-        if (s.LatLng) {
-          const [a, b] = String(s.LatLng).split(",").map(Number);
-          slat = a; slon = b;
-        } else if (s.Lat != null && s.Lng != null) {
-          slat = Number(s.Lat); slon = Number(s.Lng);
-        }
-        if (!Number.isFinite(slat) || !Number.isFinite(slon)) return;
-        if (distanceM(lat, lon, slat, slon) > AMENITY_RADIUS_M) return;
-        const marker = L.circleMarker([slat, slon], {
+      const items = Array.isArray(data.results) ? data.results : [];
+      items.forEach(item => {
+        if (!Number.isFinite(item.lat) || !Number.isFinite(item.lon)) return;
+        const marker = L.circleMarker([item.lat, item.lon], {
           radius: 6, color: "#00838F", fillColor: "#00838F", fillOpacity: 0.85, weight: 2,
         }).addTo(mapRef.current);
-        const name = s.NAME || s.DESCRIPTION || "MRT / LRT Station";
-        marker.bindPopup(`<strong>${name}</strong><br/>MRT / LRT · within ${AMENITY_RADIUS_M}m`);
+        const dist = Number.isFinite(item.distance_m) ? ` · ${item.distance_m}m away` : "";
+        marker.bindPopup(`<strong>${item.name}</strong>${dist}`);
         amenityMarkersRef.current.push(marker);
       });
     } catch {
-      /* network/auth failure → simply show no amenity markers */
+      /* network failure → simply show no amenity markers */
     }
+  };
+
+  // Toggle the amenity type and refresh markers for the currently-selected project.
+  const selectAmenityType = (type) => {
+    setAmenityType(type);
+    const coord = selectedCoordRef.current;
+    if (coord) loadAmenities(coord.lat, coord.lon, type);
   };
 
   // Initialise the Leaflet map once per (viewMode → map, results) change; the
@@ -1048,7 +1038,12 @@ function WealthPlannerCalc() {
       if (!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) return;
       const marker = L.marker([p.lat, p.lon]).addTo(map);
       marker.bindPopup(projectPopupHtml(p));
-      marker.on("click", () => loadNearbyMRT(p.lat, p.lon));
+      marker.on("click", () => {
+        // On each project click, default back to MRT.
+        selectedCoordRef.current = { lat: p.lat, lon: p.lon };
+        setAmenityType("mrt");
+        loadAmenities(p.lat, p.lon, "mrt");
+      });
     });
 
     // The container was just revealed; let Leaflet recompute its size.
@@ -1057,6 +1052,7 @@ function WealthPlannerCalc() {
     return () => {
       clearTimeout(t);
       amenityMarkersRef.current = [];
+      selectedCoordRef.current = null;
       map.remove();
       mapRef.current = null;
     };
@@ -1296,8 +1292,19 @@ function WealthPlannerCalc() {
                 ref={mapContainerRef}
                 style={{height: "480px", width: "100%", borderRadius: "12px", overflow: "hidden", marginTop: 20}}
               />
+              <div className="nd-segment" style={{marginTop: 12, maxWidth: 360}}>
+                {AMENITY_TYPES.map(a => (
+                  <button
+                    key={a.id}
+                    className={`nd-seg-btn ${amenityType === a.id ? "active" : ""}`}
+                    onClick={() => selectAmenityType(a.id)}
+                  >
+                    {a.label}
+                  </button>
+                ))}
+              </div>
               <p className="nd-section-sub" style={{marginTop: 10, marginBottom: 0}}>
-                Click a project pin to reveal MRT / LRT stations within {AMENITY_RADIUS_M}m.
+                Click a project pin to reveal nearby amenities within 1km, then switch type above.
               </p>
             </>
           )}
