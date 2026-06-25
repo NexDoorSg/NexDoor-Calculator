@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const BRAND = {
   navy: "#0D1F3C",
@@ -842,6 +842,24 @@ const PROFILE_TO_ABSD = { SC: "SC", SPR: "SPR", FR: "FR" };
 const TYPE_TO_CATEGORY = { HDB: "hdb", Condo: "condo", EC: "ec", Landed: "landed" };
 const PROJECT_MATCHER_URL = "https://homevalue.nexdoor.sg/api/project-matcher";
 
+// Map + nearby-amenities config.
+const SG_CENTER = [1.3521, 103.8198];
+const ONEMAP_MRT_URL = "https://www.onemap.gov.sg/api/public/themesvc/retrieveTheme?queryName=mrt_lrt_station";
+// OneMap's themesvc requires a Bearer token (register at onemap.gov.sg). Leave
+// blank to disable nearby-MRT lookups gracefully, or set a token to enable them.
+const ONEMAP_TOKEN = "";
+const AMENITY_RADIUS_M = 500;
+
+// Haversine distance in metres between two [lat, lon] points.
+function distanceM(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
 // Preferred size options -> sqft band sent to the project-matcher API.
 const SIZE_OPTIONS = [
   { id: "any",          label: "Any size",                       sizeMin: null, sizeMax: null },
@@ -881,6 +899,12 @@ function WealthPlannerCalc() {
   const [loading, setLoading] = useState(false);
   const [projects, setProjects] = useState(null);
   const [fetchError, setFetchError] = useState(null);
+  const [viewMode, setViewMode] = useState("list"); // "list" | "map"
+
+  // Leaflet map instance + marker bookkeeping (refs so re-renders don't reset).
+  const mapContainerRef = useRef(null);
+  const mapRef = useRef(null);
+  const amenityMarkersRef = useRef([]);
 
   // ── Section A: net cash proceeds ──
   const sp = parseFloat(curValue) || 0;
@@ -955,6 +979,89 @@ function WealthPlannerCalc() {
     if (lo === hi) return `${fmt(lo)} sqft`;
     return `${fmt(lo)}–${fmt(hi)} sqft`;
   };
+
+  const projectPopupHtml = (p) => `
+    <div style="min-width:180px;font-family:'DM Sans',sans-serif">
+      <div style="font-weight:700;font-size:14px;color:#0D1F3C;margin-bottom:2px">${p.name}</div>
+      <div style="font-size:10px;color:#00838F;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">${p.district || "—"}</div>
+      <div style="font-size:13px;color:#0D1F3C;margin-bottom:2px"><b>${fmtS(p.medianPrice)}</b> median</div>
+      <div style="font-size:12px;color:#555">Median PSF: ${p.medianPsf ? "S$ " + fmt(p.medianPsf) : "—"}</div>
+      <div style="font-size:12px;color:#555">Typical size: ${fmtTypicalSize(p)}</div>
+      <div style="font-size:12px;color:#555">${p.txCount} transactions</div>
+    </div>`;
+
+  // Remove any MRT/amenity markers from a previous project click.
+  const clearAmenityMarkers = () => {
+    if (mapRef.current) amenityMarkersRef.current.forEach(m => mapRef.current.removeLayer(m));
+    amenityMarkersRef.current = [];
+  };
+
+  // Fetch MRT/LRT stations from OneMap and plot those within 500m as teal dots.
+  const loadNearbyMRT = async (lat, lon) => {
+    clearAmenityMarkers();
+    const L = window.L;
+    if (!mapRef.current || !L) return;
+    try {
+      const headers = ONEMAP_TOKEN ? { Authorization: `Bearer ${ONEMAP_TOKEN}` } : {};
+      const res = await fetch(ONEMAP_MRT_URL, { headers });
+      if (!res.ok) return;
+      const data = await res.json();
+      // SrchResults[0] is a summary record; the rest are stations.
+      const stations = Array.isArray(data.SrchResults) ? data.SrchResults.slice(1) : [];
+      stations.forEach(s => {
+        let slat, slon;
+        if (s.LatLng) {
+          const [a, b] = String(s.LatLng).split(",").map(Number);
+          slat = a; slon = b;
+        } else if (s.Lat != null && s.Lng != null) {
+          slat = Number(s.Lat); slon = Number(s.Lng);
+        }
+        if (!Number.isFinite(slat) || !Number.isFinite(slon)) return;
+        if (distanceM(lat, lon, slat, slon) > AMENITY_RADIUS_M) return;
+        const marker = L.circleMarker([slat, slon], {
+          radius: 6, color: "#00838F", fillColor: "#00838F", fillOpacity: 0.85, weight: 2,
+        }).addTo(mapRef.current);
+        const name = s.NAME || s.DESCRIPTION || "MRT / LRT Station";
+        marker.bindPopup(`<strong>${name}</strong><br/>MRT / LRT · within ${AMENITY_RADIUS_M}m`);
+        amenityMarkersRef.current.push(marker);
+      });
+    } catch {
+      /* network/auth failure → simply show no amenity markers */
+    }
+  };
+
+  // Initialise the Leaflet map once per (viewMode → map, results) change; the
+  // cleanup destroys it so a new result set rebuilds a fresh map.
+  useEffect(() => {
+    if (viewMode !== "map" || !projects || projects.length === 0) return;
+    const L = window.L;
+    if (!L || !mapContainerRef.current) return;
+
+    const map = L.map(mapContainerRef.current).setView(SG_CENTER, 12);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap contributors",
+    }).addTo(map);
+    mapRef.current = map;
+
+    projects.forEach(p => {
+      if (!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) return;
+      const marker = L.marker([p.lat, p.lon]).addTo(map);
+      marker.bindPopup(projectPopupHtml(p));
+      marker.on("click", () => loadNearbyMRT(p.lat, p.lon));
+    });
+
+    // The container was just revealed; let Leaflet recompute its size.
+    const t = setTimeout(() => map.invalidateSize(), 100);
+
+    return () => {
+      clearTimeout(t);
+      amenityMarkersRef.current = [];
+      map.remove();
+      mapRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, projects]);
 
   return (
     <div>
@@ -1145,34 +1252,56 @@ function WealthPlannerCalc() {
       )}
 
       {!loading && projects && projects.length > 0 && (
-        <div className="nd-proj-grid">
-          {projects.map((p, i) => (
-            <div className="nd-proj-card" key={`${p.name}-${i}`}>
-              <div className="nd-proj-name">{p.name}</div>
-              <div className="nd-proj-district">{p.district || "—"}</div>
-              <div className="nd-proj-price">{fmtS(p.medianPrice)}</div>
-              <div className="nd-proj-meta">
-                <div>
-                  <p className="nd-proj-meta-label">Median PSF</p>
-                  <p className="nd-proj-meta-val">{p.medianPsf ? `S$ ${fmt(p.medianPsf)}` : "—"}</p>
+        <>
+          <div className="nd-segment" style={{marginTop: 20, maxWidth: 320}}>
+            <button className={`nd-seg-btn ${viewMode === "list" ? "active" : ""}`} onClick={() => setViewMode("list")}>List View</button>
+            <button className={`nd-seg-btn ${viewMode === "map" ? "active" : ""}`} onClick={() => setViewMode("map")}>Map View</button>
+          </div>
+
+          {viewMode === "list" && (
+            <div className="nd-proj-grid">
+              {projects.map((p, i) => (
+                <div className="nd-proj-card" key={`${p.name}-${i}`}>
+                  <div className="nd-proj-name">{p.name}</div>
+                  <div className="nd-proj-district">{p.district || "—"}</div>
+                  <div className="nd-proj-price">{fmtS(p.medianPrice)}</div>
+                  <div className="nd-proj-meta">
+                    <div>
+                      <p className="nd-proj-meta-label">Median PSF</p>
+                      <p className="nd-proj-meta-val">{p.medianPsf ? `S$ ${fmt(p.medianPsf)}` : "—"}</p>
+                    </div>
+                    <div>
+                      <p className="nd-proj-meta-label">Transactions</p>
+                      <p className="nd-proj-meta-val">{p.txCount}</p>
+                    </div>
+                    <div>
+                      <p className="nd-proj-meta-label">Last Sold</p>
+                      <p className="nd-proj-meta-val">{fmtDate(p.lastTxDate)}</p>
+                    </div>
+                    <div>
+                      <p className="nd-proj-meta-label">District</p>
+                      <p className="nd-proj-meta-val">{p.district || "—"}</p>
+                    </div>
+                  </div>
+                  <div className="nd-proj-size">Typical size: <strong>{fmtTypicalSize(p)}</strong></div>
                 </div>
-                <div>
-                  <p className="nd-proj-meta-label">Transactions</p>
-                  <p className="nd-proj-meta-val">{p.txCount}</p>
-                </div>
-                <div>
-                  <p className="nd-proj-meta-label">Last Sold</p>
-                  <p className="nd-proj-meta-val">{fmtDate(p.lastTxDate)}</p>
-                </div>
-                <div>
-                  <p className="nd-proj-meta-label">District</p>
-                  <p className="nd-proj-meta-val">{p.district || "—"}</p>
-                </div>
-              </div>
-              <div className="nd-proj-size">Typical size: <strong>{fmtTypicalSize(p)}</strong></div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+
+          {viewMode === "map" && (
+            <>
+              <div
+                id="wealth-planner-map"
+                ref={mapContainerRef}
+                style={{height: "480px", width: "100%", borderRadius: "12px", overflow: "hidden", marginTop: 20}}
+              />
+              <p className="nd-section-sub" style={{marginTop: 10, marginBottom: 0}}>
+                Click a project pin to reveal MRT / LRT stations within {AMENITY_RADIUS_M}m.
+              </p>
+            </>
+          )}
+        </>
       )}
 
       <p className="nd-note">Budget combines your net sale proceeds, max loan (TDSR 55%, or MSR 30% for HDB/EC), less cash reserves and stamp duties (BSD + ABSD on an estimated 75%-LTV purchase price). Project matches reflect median transacted prices and are indicative — actual affordability and pricing subject to bank and valuation assessment.</p>
