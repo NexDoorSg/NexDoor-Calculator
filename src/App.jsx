@@ -1221,15 +1221,25 @@ function WealthPlannerCalc() {
     return { i, name: sellerNames[i], cpfRefund, ownership, share, cashInHand, oaAfter };
   });
 
-  // ── Same-people auto-fill: buyer N inherits seller N's name + CPF OA after
-  // refund, unless that buyer field has been manually edited. ──
-  const autoFillBuyer = (i) => selling && samePeople && i < sellerCount;
-  const buyerNameEffective = (i) =>
-    (autoFillBuyer(i) && !buyerNameEdited[i] && sellerNames[i]) ? sellerNames[i] : buyerNames[i];
-  const buyerOaNum = (i) =>
-    (autoFillBuyer(i) && !buyerOaEdited[i]) ? sellerBreakdown[i].oaAfter : num(buyerOaBalances[i]);
-  const buyerOaFieldValue = (i) =>
-    (autoFillBuyer(i) && !buyerOaEdited[i]) ? String(Math.round(sellerBreakdown[i].oaAfter)) : buyerOaBalances[i];
+  // ── Same-people auto-fill: buyer N inherits seller N's name + CPF OA,
+  // unless that buyer field has been manually edited. ──
+  // Buyer i ↔ Seller i (returns the matching seller index, or -1 if none).
+  const sourceSellerIdx = (i) => (selling && samePeople && i < sellerCount) ? i : -1;
+  const autoFillBuyer = (i) => sourceSellerIdx(i) >= 0;
+  const buyerNameEffective = (i) => {
+    const s = sourceSellerIdx(i);
+    return (s >= 0 && !buyerNameEdited[i] && sellerNames[s]) ? sellerNames[s] : buyerNames[i];
+  };
+  // CPF principal + accrued interest are refunded back into the seller's OA on
+  // sale, so the post-sale OA nets out to the current balance — use it directly.
+  const buyerOaNum = (i) => {
+    const s = sourceSellerIdx(i);
+    return (s >= 0 && !buyerOaEdited[i]) ? num(sellerOaBalances[s]) : num(buyerOaBalances[i]);
+  };
+  const buyerOaFieldValue = (i) => {
+    const s = sourceSellerIdx(i);
+    return (s >= 0 && !buyerOaEdited[i]) ? String(Math.round(num(sellerOaBalances[s]))) : buyerOaBalances[i];
+  };
 
   // ── Section B: income, IWAA tenure, loan, CPF, budget ──
   const mi = buyerIdx.reduce((s, i) => s + num(buyerIncomes[i]), 0);
