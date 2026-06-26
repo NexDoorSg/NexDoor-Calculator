@@ -1147,9 +1147,16 @@ function WealthPlannerCalc() {
   const [sellerOaBalances, setSellerOaBalances] = useState(["", "", "", ""]);
   const [sellerOwnerships, setSellerOwnerships] = useState(["", "", "", ""]);
 
+  // Are the sellers and buyers the same people? (drives buyer auto-fill)
+  const [samePeople, setSamePeople] = useState(true);
+
   // Section B — buying (up to 4 buyers)
   const [buyerCount, setBuyerCount] = useState(1); // 1–4 buyers
   const [buyerNames, setBuyerNames] = useState(["", "", "", ""]);
+  // Track which buyer name / OA fields the agent has manually edited so
+  // auto-fill (from the matching seller) doesn't clobber a manual override.
+  const [buyerNameEdited, setBuyerNameEdited] = useState([false, false, false, false]);
+  const [buyerOaEdited, setBuyerOaEdited] = useState([false, false, false, false]);
   const [buyerAges, setBuyerAges] = useState(["", "", "", ""]);
   const [buyerIncomes, setBuyerIncomes] = useState(["", "", "", ""]);
   const [buyerDebts, setBuyerDebts] = useState(["", "", "", ""]);
@@ -1214,6 +1221,16 @@ function WealthPlannerCalc() {
     return { i, name: sellerNames[i], cpfRefund, ownership, share, cashInHand, oaAfter };
   });
 
+  // ── Same-people auto-fill: buyer N inherits seller N's name + CPF OA after
+  // refund, unless that buyer field has been manually edited. ──
+  const autoFillBuyer = (i) => selling && samePeople && i < sellerCount;
+  const buyerNameEffective = (i) =>
+    (autoFillBuyer(i) && !buyerNameEdited[i] && sellerNames[i]) ? sellerNames[i] : buyerNames[i];
+  const buyerOaNum = (i) =>
+    (autoFillBuyer(i) && !buyerOaEdited[i]) ? sellerBreakdown[i].oaAfter : num(buyerOaBalances[i]);
+  const buyerOaFieldValue = (i) =>
+    (autoFillBuyer(i) && !buyerOaEdited[i]) ? String(Math.round(sellerBreakdown[i].oaAfter)) : buyerOaBalances[i];
+
   // ── Section B: income, IWAA tenure, loan, CPF, budget ──
   const mi = buyerIdx.reduce((s, i) => s + num(buyerIncomes[i]), 0);
   const md = buyerIdx.reduce((s, i) => s + num(buyerDebts[i]), 0);
@@ -1243,12 +1260,13 @@ function WealthPlannerCalc() {
   // CPF OA usable toward the 20% non-cash downpayment, shared across buyers and
   // allocated proportionally to each buyer's OA balance.
   const cpfCap = 0.20 * estPrice;
-  const totalOA = buyerIdx.reduce((s, i) => s + num(buyerOaBalances[i]), 0);
+  // Negative OA (after refund) can't fund a purchase, so floor each at 0.
+  const totalOA = buyerIdx.reduce((s, i) => s + Math.max(0, buyerOaNum(i)), 0);
   const totalCpfContribution = Math.min(totalOA, cpfCap);
   const buyerCpf = buyerIdx.map(i => {
-    const oa = num(buyerOaBalances[i]);
+    const oa = Math.max(0, buyerOaNum(i));
     const contribution = totalOA > 0 ? (oa / totalOA) * totalCpfContribution : 0;
-    return { i, name: buyerNames[i], oa, contribution };
+    return { i, name: buyerNameEffective(i), oa, contribution };
   });
 
   const availableBudget = netProceeds + maxLoan + totalCpfContribution - reserves - bsd - absd;
@@ -1569,6 +1587,17 @@ function WealthPlannerCalc() {
         </>
       )}
 
+      {/* ── Same people? (only meaningful when selling) ── */}
+      {selling && (
+        <div className="nd-toggle-row" style={{marginTop: 20}}>
+          <span className="nd-toggle-label">Are the sellers and buyers the same people?</span>
+          <div className="nd-segment" style={{marginBottom: 0, width: 180}}>
+            <button className={`nd-seg-btn ${samePeople ? "active" : ""}`} onClick={() => setSamePeople(true)}>Yes</button>
+            <button className={`nd-seg-btn ${!samePeople ? "active" : ""}`} onClick={() => setSamePeople(false)}>No</button>
+          </div>
+        </div>
+      )}
+
       {/* ── Section B ── */}
       <h3 className="nd-section-head">Buyer Profile (Buying)</h3>
       <p className="nd-section-sub">We size your loan via TDSR / MSR, IWAA tenure and CPF, then net off stamp duties</p>
@@ -1588,7 +1617,7 @@ function WealthPlannerCalc() {
           <div className="nd-grid" style={{marginBottom: 0}}>
             <div className="nd-field nd-full">
               <label className="nd-label">Buyer {i + 1} — Name (optional)</label>
-              <input className="nd-input" placeholder="e.g. Lim" value={buyerNames[i]} onChange={e => upd(setBuyerNames)(i, e.target.value)} />
+              <input className="nd-input" placeholder="e.g. Lim" value={buyerNameEffective(i)} onChange={e => { upd(setBuyerNames)(i, e.target.value); upd(setBuyerNameEdited)(i, true); }} />
             </div>
             <div className="nd-field">
               <label className="nd-label">Age</label>
@@ -1604,7 +1633,10 @@ function WealthPlannerCalc() {
             </div>
             <div className="nd-field">
               <label className="nd-label">Current CPF OA Balance</label>
-              <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="120,000" value={buyerOaBalances[i]} onChange={e => upd(setBuyerOaBalances)(i, e.target.value)} /></div>
+              <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="120,000" value={buyerOaFieldValue(i)} onChange={e => { upd(setBuyerOaBalances)(i, e.target.value); upd(setBuyerOaEdited)(i, true); }} /></div>
+              {autoFillBuyer(i) && !buyerOaEdited[i] && (
+                <p className="nd-section-sub" style={{margin: "6px 0 0", fontSize: 10}}>Auto-filled from sale proceeds — tap to edit</p>
+              )}
             </div>
           </div>
           <p className="nd-section-sub" style={{margin: "10px 0 0", fontSize: 11}}>
