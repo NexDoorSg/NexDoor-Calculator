@@ -1898,6 +1898,219 @@ function WealthPlannerCalc() {
   );
 }
 
+// ─── 8. Lease Impact Calculator ───────────────────────────────
+function LeaseImpactCalc() {
+  // NexDoor brand palette (this tab is self-contained).
+  const NAVY = "#1A2942";
+  const TERRA = "#B84C30";
+  const GOLD = "#C9A96E";
+  const CREAM = "#EDE4D8";
+  const GREEN = "#2E7D32";
+
+  const money = (n) => (isNaN(n) || !isFinite(n)) ? "—" : "$" + Math.round(n).toLocaleString("en-SG");
+  const pct = (n) => (isNaN(n) || !isFinite(n)) ? "—" : `${n.toFixed(1)}%`;
+
+  // Standard Singapore BSD on purchase price.
+  const calcBSDLocal = (price) => {
+    let bsd = 0;
+    if (price <= 180000) bsd = price * 0.01;
+    else if (price <= 360000) bsd = 1800 + (price - 180000) * 0.02;
+    else if (price <= 1000000) bsd = 5400 + (price - 360000) * 0.03;
+    else if (price <= 1500000) bsd = 24600 + (price - 1000000) * 0.04;
+    else if (price <= 3000000) bsd = 44600 + (price - 1500000) * 0.05;
+    else bsd = 119600 + (price - 3000000) * 0.06;
+    return Math.round(bsd);
+  };
+  const estimateLegalFees = (price) => {
+    if (price <= 500000) return 2500;
+    if (price <= 1000000) return 3000;
+    if (price <= 2000000) return 3500;
+    return 4000;
+  };
+
+  // ── Inputs ──
+  const [propertyType, setPropertyType] = useState("HDB"); // "HDB" | "Private"
+  const [purchasePrice, setPurchasePrice] = useState("");
+  const [remainingLease, setRemainingLease] = useState("");
+  const [youngestAge, setYoungestAge] = useState("");
+  const [loanTypeChoice, setLoanTypeChoice] = useState("hdb"); // "hdb" | "bank"
+  const [numBuyers, setNumBuyers] = useState(1);
+  const [cpfBalances, setCpfBalances] = useState(["", "", "", ""]);
+  const [availableCash, setAvailableCash] = useState("");
+
+  const onDigits = (setter) => (e) => setter(e.target.value.replace(/[^0-9]/g, ""));
+  const fmtCommas = (raw) => (raw ? Number(raw).toLocaleString("en-SG") : "");
+  const setCpf = (i, v) => setCpfBalances(prev => prev.map((x, k) => (k === i ? v : x)));
+
+  // Private must use a bank loan; the HDB-loan option is hidden.
+  const loanType = propertyType === "Private" ? "bank" : loanTypeChoice;
+  const loanTypeLabel = loanType === "hdb" ? "HDB Loan" : "Bank Loan";
+
+  // ── Derived values ──
+  const pp = Number(purchasePrice) || 0;
+  const lease = parseInt(remainingLease) || 0;
+  const age = parseInt(youngestAge) || 0;
+  const cash = Number(availableCash) || 0;
+  const ready = pp > 0 && lease >= 1 && lease <= 99 && age > 0 && availableCash !== "";
+
+  // Shared pro-ration ratio (cap at 1, floor at 0).
+  let ratio = (lease - 20) / (95 - age - 20);
+  ratio = Math.min(1, Math.max(0, ratio));
+  if (!Number.isFinite(ratio)) ratio = 0;
+
+  // CPF pro-ration.
+  const cpfProRatedPct = ratio * 100;
+  const totalOA = cpfBalances.slice(0, numBuyers).reduce((s, v) => s + (Number(v) || 0), 0);
+  const maxCpfAllowed = ratio * pp;
+  const cpfUsable = Math.min(totalOA, maxCpfAllowed);
+
+  // Loan pro-ration (both HDB and bank cap at 75% LTV).
+  const proRatedLtv = ratio * 0.75;
+  const maxLoan = proRatedLtv * pp;
+  const proRatedLtvPct = proRatedLtv * 100;
+
+  // Downpayment & cash required.
+  const minDownpayment = pp - maxLoan;
+  const minCashDownpayment = Math.max(0, minDownpayment - cpfUsable);
+  const bsd = calcBSDLocal(pp);
+  const legalFees = estimateLegalFees(pp);
+  const totalCashNeeded = minCashDownpayment + bsd + legalFees;
+
+  // Shortfalls.
+  const cpfShortfall = Math.max(0, maxCpfAllowed - totalOA);
+  const cashShortfall = Math.max(0, totalCashNeeded - cash);
+
+  // ── Small presentational helpers ──
+  const card = { background: CREAM, borderRadius: 8, padding: "20px 24px", marginTop: 16, border: "1px solid rgba(26,41,66,0.10)" };
+  const cardTitle = { fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: NAVY, fontWeight: 700, marginBottom: 14 };
+  const Row = ({ label, value, color, strong, indent, divider = true }) => (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "8px 0", borderBottom: divider ? "1px solid rgba(26,41,66,0.10)" : "none", paddingLeft: indent ? 16 : 0 }}>
+      <span style={{ fontSize: 13, color: indent ? "rgba(26,41,66,0.55)" : "rgba(26,41,66,0.72)" }}>{label}</span>
+      <span style={{ fontSize: strong ? 18 : 15, fontWeight: strong ? 700 : 600, color: color || NAVY, fontFamily: strong ? "'Playfair Display', serif" : "inherit" }}>{value}</span>
+    </div>
+  );
+  const Badge = ({ bg, fg, children }) => (
+    <div style={{ display: "inline-block", background: bg, color: fg, fontSize: 12, fontWeight: 600, padding: "8px 14px", borderRadius: 6, marginTop: 12, letterSpacing: 0.3 }}>{children}</div>
+  );
+
+  return (
+    <div style={{ fontFamily: "'Montserrat', sans-serif" }}>
+      <h2 className="nd-panel-title" style={{ color: NAVY }}>Lease Impact Calculator</h2>
+      <p className="nd-panel-sub">How a property's remaining lease pro-rates your CPF usage and loan limits</p>
+
+      <h3 className="nd-section-head" style={{ marginTop: 0, color: NAVY }}>Your Details</h3>
+      <p className="nd-section-sub">Results update live as you type</p>
+
+      <div className="nd-grid">
+        <div className="nd-field">
+          <label className="nd-label">Property Type</label>
+          <div className="nd-segment" style={{ marginBottom: 0 }}>
+            {["HDB", "Private"].map(t => (
+              <button key={t} className={`nd-seg-btn ${propertyType === t ? "active" : ""}`} onClick={() => setPropertyType(t)}>{t}</button>
+            ))}
+          </div>
+        </div>
+        {propertyType === "HDB" && (
+          <div className="nd-field">
+            <label className="nd-label">Loan Type</label>
+            <div className="nd-segment" style={{ marginBottom: 0 }}>
+              {[["hdb", "HDB Loan"], ["bank", "Bank Loan"]].map(([v, l]) => (
+                <button key={v} className={`nd-seg-btn ${loanTypeChoice === v ? "active" : ""}`} onClick={() => setLoanTypeChoice(v)}>{l}</button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="nd-field">
+          <label className="nd-label">Purchase Price</label>
+          <div className="nd-input-wrap"><span className="nd-prefix">$</span><input className="nd-input" inputMode="numeric" placeholder="650,000" value={fmtCommas(purchasePrice)} onChange={onDigits(setPurchasePrice)} /></div>
+        </div>
+        <div className="nd-field">
+          <label className="nd-label">Remaining Lease (years)</label>
+          <input className="nd-input" inputMode="numeric" placeholder="60" value={remainingLease} onChange={onDigits(setRemainingLease)} />
+        </div>
+        <div className="nd-field">
+          <label className="nd-label">Youngest Buyer Age (years)</label>
+          <input className="nd-input" inputMode="numeric" placeholder="35" value={youngestAge} onChange={onDigits(setYoungestAge)} />
+        </div>
+        <div className="nd-field">
+          <label className="nd-label">Number of Buyers</label>
+          <select className="nd-select" value={numBuyers} onChange={e => setNumBuyers(parseInt(e.target.value))}>
+            {[1, 2, 3, 4].map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        {Array.from({ length: numBuyers }, (_, i) => (
+          <div className="nd-field" key={i}>
+            <label className="nd-label">Buyer {i + 1} CPF OA</label>
+            <div className="nd-input-wrap"><span className="nd-prefix">$</span><input className="nd-input" inputMode="numeric" placeholder="80,000" value={fmtCommas(cpfBalances[i])} onChange={e => setCpf(i, e.target.value.replace(/[^0-9]/g, ""))} /></div>
+          </div>
+        ))}
+        <div className="nd-field">
+          <label className="nd-label">Available Cash</label>
+          <div className="nd-input-wrap"><span className="nd-prefix">$</span><input className="nd-input" inputMode="numeric" placeholder="100,000" value={fmtCommas(availableCash)} onChange={onDigits(setAvailableCash)} /></div>
+        </div>
+      </div>
+
+      {!ready && (
+        <p className="nd-note" style={{ borderLeftColor: GOLD }}>Enter property type, purchase price, remaining lease, youngest buyer age and available cash to see your results.</p>
+      )}
+
+      {ready && (
+        <>
+          {/* CARD 1 — Lease Impact Summary */}
+          <div style={card}>
+            <p style={cardTitle}>Lease Impact Summary</p>
+            <Row label="Pro-Rated CPF Usage (Full = 100%)" value={pct(cpfProRatedPct)} color={TERRA} />
+            <Row label="Pro-Rated LTV (Full = 75%)" value={pct(proRatedLtvPct)} color={TERRA} divider={false} />
+            {ratio === 1 && <Badge bg="#E3F0E3" fg={GREEN}>✓ No pro-ration applies — full limits in effect</Badge>}
+            {ratio > 0 && ratio < 1 && <Badge bg="#FBF0DC" fg="#9A7B1F">⚠ Pro-ration applies — limits reduced due to lease</Badge>}
+            {ratio === 0 && <Badge bg="#F6E0DB" fg={TERRA}>✗ CPF and loan not available for this property</Badge>}
+          </div>
+
+          {/* CARD 2 — CPF Breakdown */}
+          <div style={card}>
+            <p style={cardTitle}>CPF Breakdown</p>
+            <Row label="Total CPF OA (all buyers)" value={money(totalOA)} />
+            <Row label="Max CPF Allowed (pro-rated)" value={money(maxCpfAllowed)} />
+            <Row label="CPF You Can Actually Use" value={money(cpfUsable)} color={GOLD} strong divider={cpfShortfall > 0} />
+            {cpfShortfall > 0 && <Row label="CPF Shortfall" value={money(cpfShortfall)} color={TERRA} divider={false} />}
+            {cpfShortfall > 0 && (
+              <p style={{ fontSize: 12, color: TERRA, marginTop: 12, lineHeight: 1.6 }}>
+                Your CPF OA balance is {money(cpfShortfall)} short of the maximum allowed. The shortfall must be covered in cash.
+              </p>
+            )}
+          </div>
+
+          {/* CARD 3 — Purchase Cost Breakdown */}
+          <div style={card}>
+            <p style={cardTitle}>Purchase Cost Breakdown</p>
+            <Row label="Purchase Price" value={money(pp)} />
+            <Row label={`Max Loan (${loanTypeLabel}, ${pct(proRatedLtvPct)} LTV)`} value={money(maxLoan)} />
+            <Row label="Total Downpayment Required" value={money(minDownpayment)} />
+            <Row label="of which — CPF" value={money(cpfUsable)} indent />
+            <Row label="of which — Cash" value={money(minCashDownpayment)} indent />
+            <Row label="Buyer's Stamp Duty" value={money(bsd)} />
+            <Row label="Est. Legal Fees" value={money(legalFees)} />
+            <Row label="Total Cash Required" value={money(totalCashNeeded)} color={NAVY} strong />
+            <Row label="Cash Available" value={money(cash)} />
+            {cashShortfall > 0 && <Row label="Cash Shortfall" value={money(cashShortfall)} color={TERRA} strong divider={false} />}
+            {cashShortfall > 0 ? (
+              <p style={{ fontSize: 12, color: TERRA, marginTop: 12, lineHeight: 1.6 }}>
+                You are {money(cashShortfall)} short in cash. Consider increasing your cash reserves or negotiating a lower purchase price.
+              </p>
+            ) : (
+              <p style={{ fontSize: 12, color: GREEN, marginTop: 12, fontWeight: 600 }}>✓ Your cash is sufficient to proceed.</p>
+            )}
+          </div>
+
+          <p style={{ fontSize: 10.5, color: "rgba(26,41,66,0.45)", lineHeight: 1.7, marginTop: 20 }}>
+            Bank loan figures are indicative only. Actual loan quantum is subject to individual bank credit assessment and may differ from the estimate above. CPF usage figures are based on CPF Board pro-ration guidelines. Consult a mortgage specialist for a formal assessment. NexDoor | Singapore Property Agency.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── App Shell ────────────────────────────────────────────────
 const TABS = [
   { id: "afford", label: "Affordability", component: AffordabilityCalc },
@@ -1907,6 +2120,7 @@ const TABS = [
   { id: "yield", label: "Rental Yield", component: RentalYieldCalc },
   { id: "seller", label: "Net Proceeds", component: SellerProceedsCalc },
   { id: "wealth", label: "Wealth Planner", component: WealthPlannerCalc },
+  { id: "lease-impact", label: "Lease Impact", component: LeaseImpactCalc },
 ];
 
 export default function App() {
