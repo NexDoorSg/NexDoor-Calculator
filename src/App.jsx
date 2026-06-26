@@ -1166,7 +1166,6 @@ function WealthPlannerCalc() {
   const [propType, setPropType] = useState("Condo");
   const [prefSize, setPrefSize] = useState("any");
   const [rate, setRate] = useState("4.0");
-  const [tenureOverride, setTenureOverride] = useState("");
   const [reserves, setReserves] = useState(50000);
 
   // Section C — projects
@@ -1230,15 +1229,18 @@ function WealthPlannerCalc() {
     const s = sourceSellerIdx(i);
     return (s >= 0 && !buyerNameEdited[i] && sellerNames[s]) ? sellerNames[s] : buyerNames[i];
   };
-  // CPF principal + accrued interest are refunded back into the seller's OA on
-  // sale, so the post-sale OA nets out to the current balance — use it directly.
+  // On sale, the seller's CPF principal AND accrued interest are refunded into
+  // their OA, so CPF available for the next purchase = current OA + principal +
+  // accrued interest.
+  const sellerCpfOaAfterSale = (s) =>
+    num(sellerOaBalances[s]) + num(sellerCpfPrincipals[s]) + num(sellerCpfInterests[s]);
   const buyerOaNum = (i) => {
     const s = sourceSellerIdx(i);
-    return (s >= 0 && !buyerOaEdited[i]) ? num(sellerOaBalances[s]) : num(buyerOaBalances[i]);
+    return (s >= 0 && !buyerOaEdited[i]) ? sellerCpfOaAfterSale(s) : num(buyerOaBalances[i]);
   };
   const buyerOaFieldValue = (i) => {
     const s = sourceSellerIdx(i);
-    return (s >= 0 && !buyerOaEdited[i]) ? String(Math.round(num(sellerOaBalances[s]))) : buyerOaBalances[i];
+    return (s >= 0 && !buyerOaEdited[i]) ? String(Math.round(sellerCpfOaAfterSale(s))) : buyerOaBalances[i];
   };
 
   // ── Section B: income, IWAA tenure, loan, CPF, budget ──
@@ -1252,11 +1254,9 @@ function WealthPlannerCalc() {
   // Derived max tenure: HDB caps at 25 yrs, private/EC at 30; both off age 65.
   const tenureCap = isHdb ? 25 : 30;
   const maxTenure = Math.max(0, Math.min(tenureCap, Math.floor(65 - iwaa)));
-  const tenureOverrideNum = tenureOverride !== "" && !isNaN(parseFloat(tenureOverride)) ? parseFloat(tenureOverride) : null;
-  const effectiveTenure = tenureOverrideNum != null ? tenureOverrideNum : maxTenure;
 
   const r = num(rate) / 100 / 12;
-  const n = effectiveTenure * 12;
+  const n = maxTenure * 12;
   const tdsrRepayment = mi * 0.55 - md;
   const msrRepayment = isHdb ? mi * 0.30 : Infinity;
   const maxRepayment = Math.max(0, Math.min(tdsrRepayment, msrRepayment));
@@ -1692,10 +1692,6 @@ function WealthPlannerCalc() {
           <label className="nd-label">Interest Rate (% p.a.)</label>
           <input className="nd-input" placeholder="4.0" value={rate} onChange={e => setRate(e.target.value)} />
         </div>
-        <div className="nd-field">
-          <label className="nd-label">Loan Tenure Override (yrs)</label>
-          <input className="nd-input" placeholder={`auto: ${maxTenure}`} value={tenureOverride} onChange={e => setTenureOverride(e.target.value)} />
-        </div>
         <div className="nd-field nd-full">
           <label className="nd-label">Cash Reserves to Keep Aside</label>
           <div className="nd-slider-row">
@@ -1721,8 +1717,7 @@ function WealthPlannerCalc() {
           </div>
           <div>
             <p className="nd-breakdown-label">Max Loan Tenure</p>
-            <p style={{fontFamily: "'Playfair Display', serif", fontSize: 26, fontWeight: 600, color: "#FAF8F4", lineHeight: 1}}>{effectiveTenure} yrs{tenureOverrideNum != null ? " *" : ""}</p>
-            {tenureOverrideNum != null && <p className="nd-breakdown-label" style={{marginTop: 4}}>* manual override (auto {maxTenure})</p>}
+            <p style={{fontFamily: "'Playfair Display', serif", fontSize: 26, fontWeight: 600, color: "#FAF8F4", lineHeight: 1}}>{maxTenure} yrs</p>
           </div>
         </div>
 
