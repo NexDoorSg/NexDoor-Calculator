@@ -1133,27 +1133,33 @@ const SIZE_OPTIONS = [
 ];
 
 function WealthPlannerCalc() {
-  // Section A — selling
+  // Section A — selling (up to 4 sellers)
   const [selling, setSelling] = useState(false);
-  const [curValue, setCurValue] = useState("");
+  const [sellerCount, setSellerCount] = useState(1); // 1–4 sellers
+  const [salePrice, setSalePrice] = useState("");
   const [loanBal, setLoanBal] = useState("");
-  const [cpfPrincipal, setCpfPrincipal] = useState("");
-  const [cpfInterest, setCpfInterest] = useState("");
   const [commRate, setCommRate] = useState("2.0");
   const [legalFees, setLegalFees] = useState("3000");
   const [ssdYears, setSsdYears] = useState("0");
+  const [sellerNames, setSellerNames] = useState(["", "", "", ""]);
+  const [sellerCpfPrincipals, setSellerCpfPrincipals] = useState(["", "", "", ""]);
+  const [sellerCpfInterests, setSellerCpfInterests] = useState(["", "", "", ""]);
+  const [sellerOaBalances, setSellerOaBalances] = useState(["", "", "", ""]);
+  const [sellerOwnerships, setSellerOwnerships] = useState(["", "", "", ""]);
 
-  // Section B — buyer
-  const [age, setAge] = useState("");
+  // Section B — buying (up to 4 buyers)
   const [buyerCount, setBuyerCount] = useState(1); // 1–4 buyers
+  const [buyerNames, setBuyerNames] = useState(["", "", "", ""]);
+  const [buyerAges, setBuyerAges] = useState(["", "", "", ""]);
   const [buyerIncomes, setBuyerIncomes] = useState(["", "", "", ""]);
   const [buyerDebts, setBuyerDebts] = useState(["", "", "", ""]);
+  const [buyerOaBalances, setBuyerOaBalances] = useState(["", "", "", ""]);
   const [citizenship, setCitizenship] = useState("SC");
   const [propCount, setPropCount] = useState("1");
   const [propType, setPropType] = useState("Condo");
   const [prefSize, setPrefSize] = useState("any");
   const [rate, setRate] = useState("4.0");
-  const [tenure, setTenure] = useState("25");
+  const [tenureOverride, setTenureOverride] = useState("");
   const [reserves, setReserves] = useState(50000);
 
   // Section C — projects
@@ -1178,41 +1184,74 @@ function WealthPlannerCalc() {
     setActiveAmenity(prev => (prev === type ? null : type));
   };
 
-  // ── Section A: net cash proceeds ──
-  const sp = parseFloat(curValue) || 0;
-  const netProceeds = selling
-    ? sp
-      - (parseFloat(loanBal) || 0)
-      - (parseFloat(cpfPrincipal) || 0)
-      - (parseFloat(cpfInterest) || 0)
-      - sp * (parseFloat(commRate) || 0) / 100
-      - (parseFloat(legalFees) || 0)
-      - sp * (SSD_RATES_WP[Math.min(parseInt(ssdYears) || 0, 4)] || 0)
-    : 0;
+  const num = (v) => parseFloat(v) || 0;
+  // Curried array-state updater for the per-seller / per-buyer fields.
+  const upd = (setter) => (i, val) => setter(prev => prev.map((x, k) => (k === i ? val : x)));
 
-  const updateBuyerIncome = (i, v) => setBuyerIncomes(prev => prev.map((x, idx) => idx === i ? v : x));
-  const updateBuyerDebt = (i, v) => setBuyerDebts(prev => prev.map((x, idx) => idx === i ? v : x));
+  const sellerIdx = Array.from({ length: sellerCount }, (_, i) => i);
+  const buyerIdx = Array.from({ length: buyerCount }, (_, i) => i);
 
-  // ── Section B: loan, stamp duties, budget ──
-  // Combine income and debt across all active buyers.
-  const mi = buyerIncomes.slice(0, buyerCount).reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
-  const md = buyerDebts.slice(0, buyerCount).reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
-  const r = (parseFloat(rate) || 0) / 100 / 12;
-  const n = (parseInt(tenure) || 0) * 12;
-  const isHdbEc = propType === "HDB" || propType === "EC";
+  // ── Section A: sale proceeds ──
+  const salePriceN = num(salePrice);
+  const loanN = num(loanBal);
+  const commN = salePriceN * num(commRate) / 100;
+  const legalN = num(legalFees);
+  const ssdN = salePriceN * (SSD_RATES_WP[Math.min(parseInt(ssdYears) || 0, 4)] || 0);
+  const totalCpfRefund = sellerIdx.reduce((s, i) => s + num(sellerCpfPrincipals[i]) + num(sellerCpfInterests[i]), 0);
+
+  // Pool left after the shared selling costs (before each owner's CPF refund).
+  const netPoolAfterCosts = salePriceN - loanN - commN - legalN - ssdN;
+  const netProceeds = selling ? (netPoolAfterCosts - totalCpfRefund) : 0;
+
+  // Splits apply if ANY seller entered an ownership %; otherwise single figure.
+  const anyOwnership = sellerIdx.some(i => sellerOwnerships[i] !== "" && !isNaN(parseFloat(sellerOwnerships[i])));
+  const sellerBreakdown = sellerIdx.map(i => {
+    const cpfRefund = num(sellerCpfPrincipals[i]) + num(sellerCpfInterests[i]);
+    const ownership = num(sellerOwnerships[i]) / 100;
+    const share = netPoolAfterCosts * ownership;
+    const cashInHand = share - cpfRefund;
+    const oaAfter = num(sellerOaBalances[i]) - cpfRefund; // per spec: Current OA − refund
+    return { i, name: sellerNames[i], cpfRefund, ownership, share, cashInHand, oaAfter };
+  });
+
+  // ── Section B: income, IWAA tenure, loan, CPF, budget ──
+  const mi = buyerIdx.reduce((s, i) => s + num(buyerIncomes[i]), 0);
+  const md = buyerIdx.reduce((s, i) => s + num(buyerDebts[i]), 0);
+  const incomeAgeSum = buyerIdx.reduce((s, i) => s + num(buyerIncomes[i]) * num(buyerAges[i]), 0);
+  const iwaa = mi > 0 ? incomeAgeSum / mi : 0;
+
+  const isHdb = propType === "HDB";
   const showSizeSelector = propType !== "Landed";
+  // Derived max tenure: HDB caps at 25 yrs, private/EC at 30; both off age 65.
+  const tenureCap = isHdb ? 25 : 30;
+  const maxTenure = Math.max(0, Math.min(tenureCap, Math.floor(65 - iwaa)));
+  const tenureOverrideNum = tenureOverride !== "" && !isNaN(parseFloat(tenureOverride)) ? parseFloat(tenureOverride) : null;
+  const effectiveTenure = tenureOverrideNum != null ? tenureOverrideNum : maxTenure;
 
+  const r = num(rate) / 100 / 12;
+  const n = effectiveTenure * 12;
   const tdsrRepayment = mi * 0.55 - md;
-  const msrRepayment = isHdbEc ? mi * 0.30 : Infinity;
+  const msrRepayment = isHdb ? mi * 0.30 : Infinity;
   const maxRepayment = Math.max(0, Math.min(tdsrRepayment, msrRepayment));
   const maxLoan = (r > 0 && n > 0) ? maxRepayment * ((Math.pow(1 + r, n) - 1) / (r * Math.pow(1 + r, n))) : 0;
 
-  // Estimated purchase price at 75% LTV, used to size stamp duties.
+  // Estimated purchase price at 75% LTV, used to size stamp duties + CPF cap.
   const estPrice = maxLoan / 0.75;
   const bsd = estPrice > 0 ? calcBSD(estPrice) : 0;
   const absd = estPrice > 0 ? getABSD(PROFILE_TO_ABSD[citizenship], parseInt(propCount), estPrice) : 0;
 
-  const availableBudget = netProceeds + maxLoan - reserves - absd - bsd;
+  // CPF OA usable toward the 20% non-cash downpayment, shared across buyers and
+  // allocated proportionally to each buyer's OA balance.
+  const cpfCap = 0.20 * estPrice;
+  const totalOA = buyerIdx.reduce((s, i) => s + num(buyerOaBalances[i]), 0);
+  const totalCpfContribution = Math.min(totalOA, cpfCap);
+  const buyerCpf = buyerIdx.map(i => {
+    const oa = num(buyerOaBalances[i]);
+    const contribution = totalOA > 0 ? (oa / totalOA) * totalCpfContribution : 0;
+    return { i, name: buyerNames[i], oa, contribution };
+  });
+
+  const availableBudget = netProceeds + maxLoan + totalCpfContribution - reserves - bsd - absd;
 
   const findProjects = async () => {
     setLoading(true);
@@ -1411,7 +1450,7 @@ function WealthPlannerCalc() {
       <p className="nd-panel-sub">Plan your next purchase — from sale proceeds to a shortlist of projects you can afford</p>
 
       {/* ── Section A ── */}
-      <h3 className="nd-section-head" style={{marginTop: 0}}>Current Property</h3>
+      <h3 className="nd-section-head" style={{marginTop: 0}}>Current Property (Selling)</h3>
       <p className="nd-section-sub">If you're selling, we'll roll your net proceeds into your budget</p>
 
       <div className="nd-toggle-row">
@@ -1424,22 +1463,23 @@ function WealthPlannerCalc() {
 
       {selling && (
         <>
+          <div className="nd-field" style={{marginBottom: 16}}>
+            <label className="nd-label">Number of Sellers</label>
+            <div className="nd-segment" style={{marginBottom: 0, maxWidth: 320}}>
+              {[1, 2, 3, 4].map(c => (
+                <button key={c} className={`nd-seg-btn ${sellerCount === c ? "active" : ""}`} onClick={() => setSellerCount(c)}>{c}</button>
+              ))}
+            </div>
+          </div>
+
           <div className="nd-grid">
             <div className="nd-field">
-              <label className="nd-label">Current Property Value</label>
-              <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="1,200,000" value={curValue} onChange={e => setCurValue(e.target.value)} /></div>
+              <label className="nd-label">Sale Price</label>
+              <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="1,200,000" value={salePrice} onChange={e => setSalePrice(e.target.value)} /></div>
             </div>
             <div className="nd-field">
               <label className="nd-label">Outstanding Loan Balance</label>
               <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="400,000" value={loanBal} onChange={e => setLoanBal(e.target.value)} /></div>
-            </div>
-            <div className="nd-field">
-              <label className="nd-label">CPF Principal Used</label>
-              <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="150,000" value={cpfPrincipal} onChange={e => setCpfPrincipal(e.target.value)} /></div>
-            </div>
-            <div className="nd-field">
-              <label className="nd-label">CPF Accrued Interest</label>
-              <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="30,000" value={cpfInterest} onChange={e => setCpfInterest(e.target.value)} /></div>
             </div>
             <div className="nd-field">
               <label className="nd-label">Agent Commission (%)</label>
@@ -1458,23 +1498,82 @@ function WealthPlannerCalc() {
               </div>
             </div>
           </div>
-          <div className="nd-results" style={{marginTop: 8}}>
-            <p className="nd-results-title">Net Cash Proceeds from Sale</p>
-            <div className="nd-result-main">
-              <div>
-                <p className="nd-result-label">Cash freed up toward your next home</p>
-                <div className="nd-result-value" style={{fontSize: 36, color: netProceeds < 0 ? "#ef5350" : "#C9A84C"}}>{fmtS(netProceeds)}</div>
+
+          {Array.from({ length: sellerCount }, (_, i) => (
+            <div key={i} style={{background: "white", border: "1.5px solid #E8E4DE", borderRadius: 6, padding: 16, marginBottom: 12}}>
+              <p className="nd-label" style={{marginBottom: 10, color: "#0D1F3C"}}>Seller {i + 1}</p>
+              <div className="nd-grid" style={{marginBottom: 0}}>
+                <div className="nd-field nd-full">
+                  <label className="nd-label">Seller {i + 1} — Name (optional)</label>
+                  <input className="nd-input" placeholder="e.g. Tan" value={sellerNames[i]} onChange={e => upd(setSellerNames)(i, e.target.value)} />
+                </div>
+                <div className="nd-field">
+                  <label className="nd-label">CPF Principal Used</label>
+                  <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="150,000" value={sellerCpfPrincipals[i]} onChange={e => upd(setSellerCpfPrincipals)(i, e.target.value)} /></div>
+                </div>
+                <div className="nd-field">
+                  <label className="nd-label">CPF Accrued Interest</label>
+                  <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="30,000" value={sellerCpfInterests[i]} onChange={e => upd(setSellerCpfInterests)(i, e.target.value)} /></div>
+                </div>
+                <div className="nd-field">
+                  <label className="nd-label">Current CPF OA Balance</label>
+                  <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="80,000" value={sellerOaBalances[i]} onChange={e => upd(setSellerOaBalances)(i, e.target.value)} /></div>
+                </div>
+                <div className="nd-field">
+                  <label className="nd-label">Ownership % (optional)</label>
+                  <input className="nd-input" placeholder="50" value={sellerOwnerships[i]} onChange={e => upd(setSellerOwnerships)(i, e.target.value)} />
+                </div>
               </div>
             </div>
-          </div>
+          ))}
+
+          {!anyOwnership ? (
+            <div className="nd-results" style={{marginTop: 8}}>
+              <p className="nd-results-title">Net Cash Proceeds from Sale</p>
+              <div className="nd-result-main">
+                <div>
+                  <p className="nd-result-label">Cash freed up toward your next home</p>
+                  <div className="nd-result-value" style={{fontSize: 36, color: netProceeds < 0 ? "#ef5350" : "#C9A84C"}}>{fmtS(netProceeds)}</div>
+                </div>
+              </div>
+              <div className="nd-breakdown">
+                <div className="nd-breakdown-item"><p className="nd-breakdown-label">Sale Price</p><p className="nd-breakdown-val">{fmtS(salePriceN)}</p></div>
+                <div className="nd-breakdown-item"><p className="nd-breakdown-label">Less: Outstanding Loan</p><p className="nd-breakdown-val">− {fmtS(loanN)}</p></div>
+                <div className="nd-breakdown-item"><p className="nd-breakdown-label">Less: Total CPF Refund</p><p className="nd-breakdown-val">− {fmtS(totalCpfRefund)}</p></div>
+                <div className="nd-breakdown-item"><p className="nd-breakdown-label">Less: Commission</p><p className="nd-breakdown-val">− {fmtS(commN)}</p></div>
+                <div className="nd-breakdown-item"><p className="nd-breakdown-label">Less: Legal Fees</p><p className="nd-breakdown-val">− {fmtS(legalN)}</p></div>
+                <div className="nd-breakdown-item"><p className="nd-breakdown-label">Less: SSD</p><p className="nd-breakdown-val">{ssdN > 0 ? `− ${fmtS(ssdN)}` : "—"}</p></div>
+              </div>
+            </div>
+          ) : (
+            <div className="nd-results" style={{marginTop: 8}}>
+              <p className="nd-results-title">Per-Seller Proceeds</p>
+              {sellerBreakdown.map(s => (
+                <div key={s.i} style={{borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 12, marginTop: 4}}>
+                  <p className="nd-breakdown-label" style={{fontSize: 12, color: "#C9A84C", marginBottom: 8}}>
+                    Seller {s.i + 1}{s.name ? ` (${s.name})` : ""} — {Math.round(s.ownership * 100)}% share
+                  </p>
+                  <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12}}>
+                    <div className="nd-breakdown-item"><p className="nd-breakdown-label">Share of Net Pool</p><p className="nd-breakdown-val">{fmtS(s.share)}</p></div>
+                    <div className="nd-breakdown-item"><p className="nd-breakdown-label">Less: CPF Refund</p><p className="nd-breakdown-val">− {fmtS(s.cpfRefund)}</p></div>
+                    <div className="nd-breakdown-item"><p className="nd-breakdown-label">Cash in Hand</p><p className="nd-breakdown-val" style={{color: s.cashInHand < 0 ? "#ef5350" : "#C9A84C"}}>{fmtS(s.cashInHand)}</p></div>
+                    <div className="nd-breakdown-item"><p className="nd-breakdown-label">CPF OA After Refund</p><p className="nd-breakdown-val" style={{color: s.oaAfter < 0 ? "#ef5350" : undefined}}>{fmtS(s.oaAfter)}</p></div>
+                  </div>
+                </div>
+              ))}
+              <p className="nd-note" style={{marginTop: 16, color: "rgba(250,248,244,0.55)", background: "rgba(255,255,255,0.04)", borderLeftColor: "#C9A84C"}}>
+                Net pool after loan, commission, legal &amp; SSD: {fmtS(netPoolAfterCosts)}. Combined net cash proceeds: <strong style={{color:"#C9A84C"}}>{fmtS(netProceeds)}</strong>
+              </p>
+            </div>
+          )}
         </>
       )}
 
       {/* ── Section B ── */}
-      <h3 className="nd-section-head">Buyer Profile</h3>
-      <p className="nd-section-sub">We size your loan via TDSR / MSR and net off stamp duties</p>
+      <h3 className="nd-section-head">Buyer Profile (Buying)</h3>
+      <p className="nd-section-sub">We size your loan via TDSR / MSR, IWAA tenure and CPF, then net off stamp duties</p>
 
-      <div className="nd-field" style={{marginBottom: 20}}>
+      <div className="nd-field" style={{marginBottom: 16}}>
         <label className="nd-label">Number of Buyers</label>
         <div className="nd-segment" style={{marginBottom: 0, maxWidth: 320}}>
           {[1, 2, 3, 4].map(c => (
@@ -1487,23 +1586,34 @@ function WealthPlannerCalc() {
         <div key={i} style={{background: "white", border: "1.5px solid #E8E4DE", borderRadius: 6, padding: 16, marginBottom: 12}}>
           <p className="nd-label" style={{marginBottom: 10, color: "#0D1F3C"}}>Buyer {i + 1}</p>
           <div className="nd-grid" style={{marginBottom: 0}}>
-            <div className="nd-field">
-              <label className="nd-label">Buyer {i + 1} — Gross Monthly Income</label>
-              <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="8,000" value={buyerIncomes[i]} onChange={e => updateBuyerIncome(i, e.target.value)} /></div>
+            <div className="nd-field nd-full">
+              <label className="nd-label">Buyer {i + 1} — Name (optional)</label>
+              <input className="nd-input" placeholder="e.g. Lim" value={buyerNames[i]} onChange={e => upd(setBuyerNames)(i, e.target.value)} />
             </div>
             <div className="nd-field">
-              <label className="nd-label">Buyer {i + 1} — Existing Monthly Debt</label>
-              <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="500" value={buyerDebts[i]} onChange={e => updateBuyerDebt(i, e.target.value)} /></div>
+              <label className="nd-label">Age</label>
+              <input className="nd-input" placeholder="35" value={buyerAges[i]} onChange={e => upd(setBuyerAges)(i, e.target.value)} />
+            </div>
+            <div className="nd-field">
+              <label className="nd-label">Gross Monthly Income</label>
+              <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="8,000" value={buyerIncomes[i]} onChange={e => upd(setBuyerIncomes)(i, e.target.value)} /></div>
+            </div>
+            <div className="nd-field">
+              <label className="nd-label">Existing Monthly Debt</label>
+              <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="500" value={buyerDebts[i]} onChange={e => upd(setBuyerDebts)(i, e.target.value)} /></div>
+            </div>
+            <div className="nd-field">
+              <label className="nd-label">Current CPF OA Balance</label>
+              <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="120,000" value={buyerOaBalances[i]} onChange={e => upd(setBuyerOaBalances)(i, e.target.value)} /></div>
             </div>
           </div>
+          <p className="nd-section-sub" style={{margin: "10px 0 0", fontSize: 11}}>
+            Can contribute up to <strong style={{color: "#00838F"}}>{fmtS(buyerCpf[i].contribution)}</strong> from CPF OA
+          </p>
         </div>
       ))}
 
       <div className="nd-grid">
-        <div className="nd-field">
-          <label className="nd-label">Age</label>
-          <input className="nd-input" placeholder="35" value={age} onChange={e => setAge(e.target.value)} />
-        </div>
         <div className="nd-field">
           <label className="nd-label">Citizenship</label>
           <select className="nd-select" value={citizenship} onChange={e => setCitizenship(e.target.value)}>
@@ -1541,8 +1651,8 @@ function WealthPlannerCalc() {
           <input className="nd-input" placeholder="4.0" value={rate} onChange={e => setRate(e.target.value)} />
         </div>
         <div className="nd-field">
-          <label className="nd-label">Loan Tenure (years)</label>
-          <input className="nd-input" placeholder="25" value={tenure} onChange={e => setTenure(e.target.value)} />
+          <label className="nd-label">Loan Tenure Override (yrs)</label>
+          <input className="nd-input" placeholder={`auto: ${maxTenure}`} value={tenureOverride} onChange={e => setTenureOverride(e.target.value)} />
         </div>
         <div className="nd-field nd-full">
           <label className="nd-label">Cash Reserves to Keep Aside</label>
@@ -1561,19 +1671,41 @@ function WealthPlannerCalc() {
             <div className="nd-result-value" style={{color: availableBudget < 0 ? "#ef5350" : "#C9A84C"}}>{fmtS(availableBudget)}</div>
           </div>
         </div>
+
+        <div style={{display: "flex", gap: 32, margin: "4px 0 18px"}}>
+          <div>
+            <p className="nd-breakdown-label">IWAA (Income-Weighted Avg Age)</p>
+            <p style={{fontFamily: "'Playfair Display', serif", fontSize: 26, fontWeight: 600, color: "#FAF8F4", lineHeight: 1}}>{iwaa > 0 ? iwaa.toFixed(1) : "—"}</p>
+          </div>
+          <div>
+            <p className="nd-breakdown-label">Max Loan Tenure</p>
+            <p style={{fontFamily: "'Playfair Display', serif", fontSize: 26, fontWeight: 600, color: "#FAF8F4", lineHeight: 1}}>{effectiveTenure} yrs{tenureOverrideNum != null ? " *" : ""}</p>
+            {tenureOverrideNum != null && <p className="nd-breakdown-label" style={{marginTop: 4}}>* manual override (auto {maxTenure})</p>}
+          </div>
+        </div>
+
         <div className="nd-breakdown">
-          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Combined Income ({buyerCount} {buyerCount === 1 ? "buyer" : "buyers"})</p><p className="nd-breakdown-val">{fmtS(mi)}</p></div>
-          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Combined Debt</p><p className="nd-breakdown-val">{fmtS(md)}</p></div>
-          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Net Sale Proceeds</p><p className="nd-breakdown-val">{selling ? fmtS(netProceeds) : "—"}</p></div>
-          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Max Loan ({isHdbEc ? "MSR 30%" : "TDSR 55%"})</p><p className="nd-breakdown-val">{fmtS(maxLoan)}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Net Cash Proceeds</p><p className="nd-breakdown-val">{selling ? fmtS(netProceeds) : "—"}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Max Loan ({isHdb ? "MSR 30% / TDSR 55%" : "TDSR 55%"})</p><p className="nd-breakdown-val">{fmtS(maxLoan)}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Total CPF Contribution</p><p className="nd-breakdown-val">{fmtS(totalCpfContribution)}</p></div>
           <div className="nd-breakdown-item"><p className="nd-breakdown-label">Cash Reserves Held</p><p className="nd-breakdown-val">− {fmtS(reserves)}</p></div>
           <div className="nd-breakdown-item"><p className="nd-breakdown-label">BSD</p><p className="nd-breakdown-val">− {fmtS(bsd)}</p></div>
           <div className="nd-breakdown-item"><p className="nd-breakdown-label">ABSD</p><p className="nd-breakdown-val">{absd === 0 ? "—" : `− ${fmtS(absd)}`}</p></div>
           <div className="nd-breakdown-item"><p className="nd-breakdown-label">Est. Purchase Price (75% LTV)</p><p className="nd-breakdown-val">{fmtS(estPrice)}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Combined Income / Debt</p><p className="nd-breakdown-val">{fmtS(mi)} / {fmtS(md)}</p></div>
         </div>
+
         <p className="nd-note" style={{marginTop: 16, color: "rgba(250,248,244,0.55)", background: "rgba(255,255,255,0.04)", borderLeftColor: "#C9A84C"}}>
-          Net Proceeds {fmtS(netProceeds)} + Max Loan {fmtS(maxLoan)} − Reserves {fmtS(reserves)} − Stamp Duties {fmtS(bsd + absd)} = <strong style={{color:"#C9A84C"}}>{fmtS(availableBudget)}</strong>
+          {selling ? `Net Proceeds ${fmtS(netProceeds)} + ` : ""}Max Loan {fmtS(maxLoan)} + CPF {fmtS(totalCpfContribution)} − Reserves {fmtS(reserves)} − Stamp Duties {fmtS(bsd + absd)} = <strong style={{color:"#C9A84C"}}>{fmtS(availableBudget)}</strong>
         </p>
+
+        <div style={{marginTop: 12, display: "flex", flexWrap: "wrap", gap: 8, fontSize: 12, color: "rgba(250,248,244,0.7)"}}>
+          {buyerCpf.map(b => (
+            <span key={b.i}>
+              Buyer {b.i + 1}{b.name ? ` (${b.name})` : ""}: <strong style={{color: "#C9A84C"}}>{fmtS(b.contribution)}</strong> CPF{b.i < buyerCpf.length - 1 ? "  |" : ""}
+            </span>
+          ))}
+        </div>
       </div>
 
       {/* ── Section C ── */}
