@@ -1980,6 +1980,24 @@ function LeaseImpactCalc() {
   const cpfRestricted = totalOA > maxCpfAllowed;
   const cashShortfall = Math.max(0, totalCashNeeded - cash);
 
+  // HDB grant eligibility notes. EHG needs the lease to cover the youngest
+  // buyer to 95 for the full grant; below 20 years lease, no grants apply.
+  const ehgStatus = lease < 20 ? "none" : ((95 - age) <= lease ? "full" : "prorated");
+  const grantsAmber = "#9A7B1F";
+  const grantNotes = [
+    ehgStatus === "full"
+      ? { c: GREEN, t: "✓ EHG — Full grant may apply (up to $120,000 for families / $60,000 for singles)" }
+      : ehgStatus === "prorated"
+        ? { c: grantsAmber, t: "⚠ EHG — Will be pro-rated by HDB as lease does not cover youngest buyer to age 95. Confirm exact amount via your HFE letter." }
+        : { c: TERRA, t: "✗ EHG — Not available (remaining lease below 20 years)" },
+    lease >= 20
+      ? { c: GREEN, t: "✓ CPF Housing Grant — May apply (up to $80,000 for families / $40,000 for singles), subject to income and first-timer eligibility" }
+      : { c: TERRA, t: "✗ CPF Housing Grant — Not available (remaining lease below 20 years)" },
+    lease >= 20
+      ? { c: GREEN, t: "✓ Proximity Housing Grant — May apply (up to $30,000 for families / $15,000 for singles) if buying near or with parents/children. No income ceiling." }
+      : { c: TERRA, t: "✗ Proximity Housing Grant — Not available (remaining lease below 20 years)" },
+  ];
+
   // ── Small presentational helpers ──
   const card = { background: CREAM, borderRadius: 8, padding: "20px 24px", marginTop: 16, border: "1px solid rgba(26,41,66,0.10)" };
   const cardTitle = { fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: NAVY, fontWeight: 700, marginBottom: 14 };
@@ -2104,6 +2122,19 @@ function LeaseImpactCalc() {
               <p style={{ fontSize: 12, color: GREEN, marginTop: 12, fontWeight: 600 }}>✓ Your cash is sufficient to proceed.</p>
             )}
           </div>
+
+          {/* GRANTS NOTE — HDB only */}
+          {propertyType === "HDB" && (
+            <div style={card}>
+              <p style={cardTitle}>HDB Grants — What to Know</p>
+              {grantNotes.map((g, i) => (
+                <p key={i} style={{ fontSize: 12.5, color: g.c, fontWeight: 600, lineHeight: 1.55, padding: "10px 0", margin: 0, borderBottom: i < grantNotes.length - 1 ? "1px solid rgba(26,41,66,0.10)" : "none" }}>{g.t}</p>
+              ))}
+              <p style={{ fontSize: 10.5, color: "rgba(26,41,66,0.45)", lineHeight: 1.7, marginTop: 14 }}>
+                Grant eligibility is subject to citizenship, first-timer status, income, and other HDB conditions. Figures shown are maximum amounts as at 2026. Always verify via your HDB Flat Eligibility (HFE) letter.
+              </p>
+            </div>
+          )}
 
           <p style={{ fontSize: 10.5, color: "rgba(26,41,66,0.45)", lineHeight: 1.7, marginTop: 20 }}>
             Bank loan figures are indicative only. Actual loan quantum is subject to individual bank credit assessment and may differ from the estimate above. CPF usage figures are based on CPF Board pro-ration guidelines. Consult a mortgage specialist for a formal assessment. NexDoor | Singapore Property Agency.
