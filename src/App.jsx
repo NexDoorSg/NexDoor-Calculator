@@ -1976,8 +1976,8 @@ function LeaseImpactCalc() {
   const legalFees = estimateLegalFees(pp);
   const totalCashNeeded = minCashDownpayment + bsd + legalFees;
 
-  // Shortfalls.
-  const cpfShortfall = Math.max(0, maxCpfAllowed - totalOA);
+  // Pro-ration only bites when the buyer's CPF OA exceeds the pro-rated ceiling.
+  const cpfRestricted = totalOA > maxCpfAllowed;
   const cashShortfall = Math.max(0, totalCashNeeded - cash);
 
   // ── Small presentational helpers ──
@@ -2071,11 +2071,14 @@ function LeaseImpactCalc() {
             <p style={cardTitle}>CPF Breakdown</p>
             <Row label="Total CPF OA (all buyers)" value={money(totalOA)} />
             <Row label="Max CPF Allowed (pro-rated)" value={money(maxCpfAllowed)} />
-            <Row label="CPF You Can Actually Use" value={money(cpfUsable)} color={GOLD} strong divider={cpfShortfall > 0} />
-            {cpfShortfall > 0 && <Row label="CPF Shortfall" value={money(cpfShortfall)} color={TERRA} divider={false} />}
-            {cpfShortfall > 0 && (
-              <p style={{ fontSize: 12, color: TERRA, marginTop: 12, lineHeight: 1.6 }}>
-                Your CPF OA balance is {money(cpfShortfall)} short of the maximum allowed. The shortfall must be covered in cash.
+            <Row label="CPF You Can Actually Use" value={money(cpfUsable)} color={GOLD} strong divider={false} />
+            {!cpfRestricted ? (
+              <p style={{ fontSize: 12, color: GREEN, marginTop: 12, lineHeight: 1.6, fontWeight: 600 }}>
+                ✓ You can use your full CPF OA of {money(totalOA)} towards this purchase. The pro-rated CPF ceiling ({money(maxCpfAllowed)}) is above your balance — no CPF restriction applies to you.
+              </p>
+            ) : (
+              <p style={{ fontSize: 12, color: "#9A7B1F", marginTop: 12, lineHeight: 1.6, fontWeight: 600 }}>
+                ⚠ Your CPF OA ({money(totalOA)}) exceeds the pro-rated ceiling. You are restricted to using {money(maxCpfAllowed)} in CPF for this property. The remaining {money(totalOA - maxCpfAllowed)} stays in your CPF OA and cannot be used for this purchase.
               </p>
             )}
           </div>
