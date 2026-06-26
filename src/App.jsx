@@ -12,7 +12,7 @@ const BRAND = {
 
 const style = document.createElement("style");
 style.textContent = `
-  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,800;0,900&family=DM+Sans:wght@300;400;500;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,800;0,900&family=Montserrat:wght@300;400;500;600;700&family=DM+Sans:wght@300;400;500;600&display=swap');
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -1145,10 +1145,9 @@ function WealthPlannerCalc() {
 
   // Section B — buyer
   const [age, setAge] = useState("");
-  const [income, setIncome] = useState("");
-  const [coBorrower, setCoBorrower] = useState(false);
-  const [coIncome, setCoIncome] = useState("");
-  const [debt, setDebt] = useState("");
+  const [buyerCount, setBuyerCount] = useState(1); // 1–4 buyers
+  const [buyerIncomes, setBuyerIncomes] = useState(["", "", "", ""]);
+  const [buyerDebts, setBuyerDebts] = useState(["", "", "", ""]);
   const [citizenship, setCitizenship] = useState("SC");
   const [propCount, setPropCount] = useState("1");
   const [propType, setPropType] = useState("Condo");
@@ -1191,9 +1190,13 @@ function WealthPlannerCalc() {
       - sp * (SSD_RATES_WP[Math.min(parseInt(ssdYears) || 0, 4)] || 0)
     : 0;
 
+  const updateBuyerIncome = (i, v) => setBuyerIncomes(prev => prev.map((x, idx) => idx === i ? v : x));
+  const updateBuyerDebt = (i, v) => setBuyerDebts(prev => prev.map((x, idx) => idx === i ? v : x));
+
   // ── Section B: loan, stamp duties, budget ──
-  const mi = (parseFloat(income) || 0) + (coBorrower ? (parseFloat(coIncome) || 0) : 0);
-  const md = parseFloat(debt) || 0;
+  // Combine income and debt across all active buyers.
+  const mi = buyerIncomes.slice(0, buyerCount).reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
+  const md = buyerDebts.slice(0, buyerCount).reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
   const r = (parseFloat(rate) || 0) / 100 / 12;
   const n = (parseInt(tenure) || 0) * 12;
   const isHdbEc = propType === "HDB" || propType === "EC";
@@ -1403,7 +1406,7 @@ function WealthPlannerCalc() {
   }, [activeAmenity, selectedProjectLatLon, viewMode]);
 
   return (
-    <div>
+    <div style={{fontFamily: "'Montserrat', sans-serif"}}>
       <h2 className="nd-panel-title">Wealth Planner</h2>
       <p className="nd-panel-sub">Plan your next purchase — from sale proceeds to a shortlist of projects you can afford</p>
 
@@ -1471,31 +1474,35 @@ function WealthPlannerCalc() {
       <h3 className="nd-section-head">Buyer Profile</h3>
       <p className="nd-section-sub">We size your loan via TDSR / MSR and net off stamp duties</p>
 
-      <div style={{display:"flex", gap:12, marginBottom:20, flexWrap:"wrap"}}>
-        <div className="nd-segment" style={{flex:1, minWidth:200}}>
-          <button className={`nd-seg-btn ${!coBorrower ? "active" : ""}`} onClick={() => setCoBorrower(false)}>Solo</button>
-          <button className={`nd-seg-btn ${coBorrower ? "active" : ""}`} onClick={() => setCoBorrower(true)}>+ Co-borrower</button>
+      <div className="nd-field" style={{marginBottom: 20}}>
+        <label className="nd-label">Number of Buyers</label>
+        <div className="nd-segment" style={{marginBottom: 0, maxWidth: 320}}>
+          {[1, 2, 3, 4].map(c => (
+            <button key={c} className={`nd-seg-btn ${buyerCount === c ? "active" : ""}`} onClick={() => setBuyerCount(c)}>{c}</button>
+          ))}
         </div>
       </div>
+
+      {Array.from({ length: buyerCount }, (_, i) => (
+        <div key={i} style={{background: "white", border: "1.5px solid #E8E4DE", borderRadius: 6, padding: 16, marginBottom: 12}}>
+          <p className="nd-label" style={{marginBottom: 10, color: "#0D1F3C"}}>Buyer {i + 1}</p>
+          <div className="nd-grid" style={{marginBottom: 0}}>
+            <div className="nd-field">
+              <label className="nd-label">Buyer {i + 1} — Gross Monthly Income</label>
+              <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="8,000" value={buyerIncomes[i]} onChange={e => updateBuyerIncome(i, e.target.value)} /></div>
+            </div>
+            <div className="nd-field">
+              <label className="nd-label">Buyer {i + 1} — Existing Monthly Debt</label>
+              <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="500" value={buyerDebts[i]} onChange={e => updateBuyerDebt(i, e.target.value)} /></div>
+            </div>
+          </div>
+        </div>
+      ))}
 
       <div className="nd-grid">
         <div className="nd-field">
           <label className="nd-label">Age</label>
           <input className="nd-input" placeholder="35" value={age} onChange={e => setAge(e.target.value)} />
-        </div>
-        <div className="nd-field">
-          <label className="nd-label">{coBorrower ? "Your Gross Monthly Income" : "Gross Monthly Income"}</label>
-          <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="8,000" value={income} onChange={e => setIncome(e.target.value)} /></div>
-        </div>
-        {coBorrower && (
-          <div className="nd-field">
-            <label className="nd-label">Co-borrower Gross Monthly Income</label>
-            <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="6,000" value={coIncome} onChange={e => setCoIncome(e.target.value)} /></div>
-          </div>
-        )}
-        <div className="nd-field">
-          <label className="nd-label">Existing Monthly Debt</label>
-          <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="500" value={debt} onChange={e => setDebt(e.target.value)} /></div>
         </div>
         <div className="nd-field">
           <label className="nd-label">Citizenship</label>
@@ -1555,6 +1562,8 @@ function WealthPlannerCalc() {
           </div>
         </div>
         <div className="nd-breakdown">
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Combined Income ({buyerCount} {buyerCount === 1 ? "buyer" : "buyers"})</p><p className="nd-breakdown-val">{fmtS(mi)}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Combined Debt</p><p className="nd-breakdown-val">{fmtS(md)}</p></div>
           <div className="nd-breakdown-item"><p className="nd-breakdown-label">Net Sale Proceeds</p><p className="nd-breakdown-val">{selling ? fmtS(netProceeds) : "—"}</p></div>
           <div className="nd-breakdown-item"><p className="nd-breakdown-label">Max Loan ({isHdbEc ? "MSR 30%" : "TDSR 55%"})</p><p className="nd-breakdown-val">{fmtS(maxLoan)}</p></div>
           <div className="nd-breakdown-item"><p className="nd-breakdown-label">Cash Reserves Held</p><p className="nd-breakdown-val">− {fmtS(reserves)}</p></div>
