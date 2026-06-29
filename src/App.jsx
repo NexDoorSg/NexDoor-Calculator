@@ -1972,7 +1972,8 @@ function LeaseImpactCalc() {
 
   // Funding stack per loan type.
   // HDB: flat $5,000. Private: 5% of price (1% + 4% option/exercise).
-  const optionExerciseFees = propertyType === "HDB" ? 5000 : Math.round(pp * 0.05);
+  const isHdbProperty = String(propertyType).toUpperCase() === "HDB";
+  const optionExerciseFees = isHdbProperty ? 5000 : Math.round(pp * 0.05);
   const bsd = calcBSDLocal(pp);
   const legalFees = estimateLegalFees(pp);
 
@@ -2139,7 +2140,7 @@ function LeaseImpactCalc() {
             <Row label="of which — CPF" value={money(cpfForDownpayment)} indent />
             {loanType === "bank" && <Row label="of which — Mandatory Cash (5%)" value={money(mandatoryCash)} indent />}
             <Row label="of which — Cash" value={money(loanType === "bank" ? discretionaryCashDownpayment : cashForDownpayment)} indent />
-            <Row label={propertyType === "HDB" ? "Option + Exercise Fees (Fixed)" : "Option + Exercise Fees (1% + 4%)"} value={money(optionExerciseFees)} />
+            <Row label={isHdbProperty ? "Option + Exercise Fees (Fixed)" : "Option + Exercise Fees (1% + 4%)"} value={money(optionExerciseFees)} />
             <Row label="Buyer's Stamp Duty" value={money(bsd)} />
             <Row label="Est. Legal Fees" value={money(legalFees)} />
             <Row label="Total Cash Required" value={money(totalCashRequired)} color={NAVY} strong />
