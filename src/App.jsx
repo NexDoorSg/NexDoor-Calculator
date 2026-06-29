@@ -1942,9 +1942,11 @@ function LeaseImpactCalc() {
   const fmtCommas = (raw) => (raw ? Number(raw).toLocaleString("en-SG") : "");
   const setCpf = (i, v) => setCpfBalances(prev => prev.map((x, k) => (k === i ? v : x)));
 
-  // Private must use a bank loan; the HDB-loan option is hidden.
-  const loanType = propertyType === "Private" ? "bank" : loanTypeChoice;
-  const loanTypeLabel = loanType === "hdb" ? "HDB Loan" : "Bank Loan";
+  // Private can't take an HDB loan, so an "hdb" choice maps to a bank loan.
+  const loanType = propertyType === "Private"
+    ? (loanTypeChoice === "none" ? "none" : "bank")
+    : loanTypeChoice;
+  const loanTypeLabel = loanType === "hdb" ? "HDB Loan" : loanType === "bank" ? "Bank Loan" : "No Loan (Cash + CPF)";
 
   // ── Derived values ──
   const pp = Number(purchasePrice) || 0;
@@ -1964,21 +1966,46 @@ function LeaseImpactCalc() {
   const maxCpfAllowed = ratio * pp;
   const cpfUsable = Math.min(totalOA, maxCpfAllowed);
 
-  // Loan pro-ration (both HDB and bank cap at 75% LTV).
+  // Loan pro-ration (HDB and bank both cap at 75% LTV; shown for those types).
   const proRatedLtv = ratio * 0.75;
-  const maxLoan = proRatedLtv * pp;
   const proRatedLtvPct = proRatedLtv * 100;
 
-  // Downpayment & cash required.
-  const minDownpayment = pp - maxLoan;
-  const minCashDownpayment = Math.max(0, minDownpayment - cpfUsable);
+  // Funding stack per loan type.
+  const optionExerciseFees = 5000; // flat $5,000 cash, always
   const bsd = calcBSDLocal(pp);
   const legalFees = estimateLegalFees(pp);
-  const totalCashNeeded = minCashDownpayment + bsd + legalFees;
+
+  let maxLoan = 0;
+  let downpayment = 0;
+  let cpfForDownpayment = 0;
+  let cashForDownpayment = 0;
+  let mandatoryCash = 0; // bank loan only: first 5% must be cash
+  if (loanType === "hdb") {
+    maxLoan = proRatedLtv * pp;
+    downpayment = pp - maxLoan;
+    cpfForDownpayment = Math.min(cpfUsable, downpayment);
+    cashForDownpayment = Math.max(0, downpayment - cpfForDownpayment);
+  } else if (loanType === "bank") {
+    maxLoan = proRatedLtv * pp;
+    downpayment = pp - maxLoan;
+    mandatoryCash = pp * 0.05;
+    const remainingDownpayment = downpayment - mandatoryCash;
+    cpfForDownpayment = Math.min(cpfUsable, Math.max(0, remainingDownpayment));
+    cashForDownpayment = mandatoryCash + Math.max(0, remainingDownpayment - cpfForDownpayment);
+  } else { // "none" — cash + CPF only
+    maxLoan = 0;
+    downpayment = pp;
+    cpfForDownpayment = Math.min(cpfUsable, pp);
+    cashForDownpayment = Math.max(0, pp - cpfForDownpayment);
+  }
+  // Non-mandatory cash portion of the downpayment (so the "of which" rows sum
+  // to the downpayment without double-counting the mandatory 5%).
+  const discretionaryCashDownpayment = cashForDownpayment - mandatoryCash;
+  const totalCashRequired = optionExerciseFees + cashForDownpayment + bsd + legalFees;
+  const cashShortfall = Math.max(0, totalCashRequired - cash);
 
   // Pro-ration only bites when the buyer's CPF OA exceeds the pro-rated ceiling.
   const cpfRestricted = totalOA > maxCpfAllowed;
-  const cashShortfall = Math.max(0, totalCashNeeded - cash);
 
   // HDB grant eligibility notes. EHG needs the lease to cover the youngest
   // buyer to 95 for the full grant; below 20 years lease, no grants apply.
@@ -2020,7 +2047,7 @@ function LeaseImpactCalc() {
       <p className="nd-section-sub">Results update live as you type</p>
 
       <div className="nd-grid">
-        <div className="nd-field">
+        <div className="nd-field nd-full">
           <label className="nd-label">Property Type</label>
           <div className="nd-segment" style={{ marginBottom: 0 }}>
             {["HDB", "Private"].map(t => (
@@ -2028,16 +2055,17 @@ function LeaseImpactCalc() {
             ))}
           </div>
         </div>
-        {propertyType === "HDB" && (
-          <div className="nd-field">
-            <label className="nd-label">Loan Type</label>
-            <div className="nd-segment" style={{ marginBottom: 0 }}>
-              {[["hdb", "HDB Loan"], ["bank", "Bank Loan"]].map(([v, l]) => (
-                <button key={v} className={`nd-seg-btn ${loanTypeChoice === v ? "active" : ""}`} onClick={() => setLoanTypeChoice(v)}>{l}</button>
-              ))}
-            </div>
+        <div className="nd-field nd-full">
+          <label className="nd-label">Loan Type</label>
+          <div className="nd-segment" style={{ marginBottom: 0 }}>
+            {(propertyType === "HDB"
+              ? [["hdb", "HDB Loan"], ["bank", "Bank Loan"], ["none", "No Loan (Cash + CPF)"]]
+              : [["bank", "Bank Loan"], ["none", "No Loan (Cash + CPF)"]]
+            ).map(([v, l]) => (
+              <button key={v} className={`nd-seg-btn ${loanType === v ? "active" : ""}`} onClick={() => setLoanTypeChoice(v)} style={{ fontSize: 10.5 }}>{l}</button>
+            ))}
           </div>
-        )}
+        </div>
         <div className="nd-field">
           <label className="nd-label">Purchase Price</label>
           <div className="nd-input-wrap"><span className="nd-prefix">$</span><input className="nd-input" inputMode="numeric" placeholder="650,000" value={fmtCommas(purchasePrice)} onChange={onDigits(setPurchasePrice)} /></div>
@@ -2077,8 +2105,8 @@ function LeaseImpactCalc() {
           {/* CARD 1 — Lease Impact Summary */}
           <div style={card}>
             <p style={cardTitle}>Lease Impact Summary</p>
-            <Row label="Pro-Rated CPF Usage (Full = 100%)" value={pct(cpfProRatedPct)} color={TERRA} />
-            <Row label="Pro-Rated LTV (Full = 75%)" value={pct(proRatedLtvPct)} color={TERRA} divider={false} />
+            <Row label="Pro-Rated CPF Usage (Full = 100%)" value={pct(cpfProRatedPct)} color={TERRA} divider={loanType !== "none"} />
+            {loanType !== "none" && <Row label="Pro-Rated LTV (Full = 75%)" value={pct(proRatedLtvPct)} color={TERRA} divider={false} />}
             {ratio === 1 && <Badge bg="#E3F0E3" fg={GREEN}>✓ No pro-ration applies — full limits in effect</Badge>}
             {ratio > 0 && ratio < 1 && <Badge bg="#FBF0DC" fg="#9A7B1F">⚠ Pro-ration applies — limits reduced due to lease</Badge>}
             {ratio === 0 && <Badge bg="#F6E0DB" fg={TERRA}>✗ CPF and loan not available for this property</Badge>}
@@ -2105,13 +2133,15 @@ function LeaseImpactCalc() {
           <div style={card}>
             <p style={cardTitle}>Purchase Cost Breakdown</p>
             <Row label="Purchase Price" value={money(pp)} />
-            <Row label={`Max Loan (${loanTypeLabel}, ${pct(proRatedLtvPct)} LTV)`} value={money(maxLoan)} />
-            <Row label="Total Downpayment Required" value={money(minDownpayment)} />
-            <Row label="of which — CPF" value={money(cpfUsable)} indent />
-            <Row label="of which — Cash" value={money(minCashDownpayment)} indent />
+            {loanType !== "none" && <Row label={`Max Loan (${loanTypeLabel}, ${pct(proRatedLtvPct)} LTV)`} value={money(maxLoan)} />}
+            <Row label="Total Downpayment Required" value={money(downpayment)} />
+            <Row label="of which — CPF" value={money(cpfForDownpayment)} indent />
+            {loanType === "bank" && <Row label="of which — Mandatory Cash (5%)" value={money(mandatoryCash)} indent />}
+            <Row label="of which — Cash" value={money(loanType === "bank" ? discretionaryCashDownpayment : cashForDownpayment)} indent />
+            <Row label="Option + Exercise Fees" value={money(optionExerciseFees)} />
             <Row label="Buyer's Stamp Duty" value={money(bsd)} />
             <Row label="Est. Legal Fees" value={money(legalFees)} />
-            <Row label="Total Cash Required" value={money(totalCashNeeded)} color={NAVY} strong />
+            <Row label="Total Cash Required" value={money(totalCashRequired)} color={NAVY} strong />
             <Row label="Cash Available" value={money(cash)} />
             {cashShortfall > 0 && <Row label="Cash Shortfall" value={money(cashShortfall)} color={TERRA} strong divider={false} />}
             {cashShortfall > 0 ? (
