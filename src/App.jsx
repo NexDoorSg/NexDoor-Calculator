@@ -1283,6 +1283,9 @@ function WealthPlannerCalc() {
   };
 
   // Existing-property mortgage (pure-buyer flow only) reduces TDSR + LTV.
+  // The 45% LTV / 25%-min-cash rule triggers ONLY when there is an actual
+  // outstanding loan on an existing property — NOT merely because properties
+  // are owned. A fully-paid-up existing property keeps LTV at 75%.
   const existingLoanBalN = num(existingLoanBal);
   const hasOutstandingLoan = !selling && existingProperty === "yes" && existingLoanBalN > 0;
   const existingMonthly = hasOutstandingLoan
@@ -1296,7 +1299,12 @@ function WealthPlannerCalc() {
   const downpaymentPct = 1 - effectiveLtv; // 0.25 standard, 0.55 with existing loan
 
   // ── ABSD (2024 rates): highest rate across buyers by citizenship + count ──
+  // The selector stores a string ("0".."3"); parse to an integer so
+  // propertyCount (owned + 1) and the === comparisons in getRate work — e.g.
+  // owned 1 → 2nd property → SC 20%.
   const propertiesOwnedN = parseInt(propertiesOwned) || 0;
+  const propertyCount = propertiesOwnedN + 1;
+  const propertyCountLabel = propertyCount === 1 ? "1st" : propertyCount === 2 ? "2nd" : propertyCount === 3 ? "3rd" : "4th+";
   const buyersArr = buyerIdx.map(i => ({ citizenship: buyerCitizenships[i] }));
   const calcAbsd = (buyers, price, owned) => {
     const propertyCount = owned + 1;
@@ -1881,7 +1889,7 @@ function WealthPlannerCalc() {
           <div className="nd-breakdown-item"><p className="nd-breakdown-label" style={{paddingLeft: 12}}>of which — Cash</p><p className="nd-breakdown-val">{fmtS(cashForDownpayment)}</p></div>
           <div className="nd-breakdown-item"><p className="nd-breakdown-label">Option + Exercise Fees</p><p className="nd-breakdown-val">{fmtS(optionFees)}</p></div>
           <div className="nd-breakdown-item"><p className="nd-breakdown-label">Buyer's Stamp Duty (BSD)</p><p className="nd-breakdown-val">{fmtS(bsd)}</p></div>
-          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Additional Buyer's Stamp Duty (ABSD)</p><p className="nd-breakdown-val" style={{color: absd > 0 ? "#ef5350" : undefined}}>{absd > 0 ? fmtS(absd) : "Not applicable"}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">ABSD ({propertyCountLabel} property)</p><p className="nd-breakdown-val" style={{color: absd > 0 ? "#ef5350" : undefined}}>{absd > 0 ? fmtS(absd) : "Not applicable"}</p></div>
           <div className="nd-breakdown-item"><p className="nd-breakdown-label">Est. Legal Fees</p><p className="nd-breakdown-val">{fmtS(buyerLegal)}</p></div>
           <div className="nd-breakdown-item"><p className="nd-breakdown-label">Total Cash + CPF Required</p><p className="nd-breakdown-val" style={{color: "#C9A84C", fontWeight: 700}}>{fmtS(totalFundsRequired)}</p></div>
           <div className="nd-breakdown-item"><p className="nd-breakdown-label">Cash + CPF Available</p><p className="nd-breakdown-val">{fmtS(totalFunds)}</p></div>
