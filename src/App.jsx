@@ -1302,7 +1302,11 @@ function WealthPlannerCalc() {
   // The selector stores a string ("0".."3"); parse to an integer so
   // propertyCount (owned + 1) and the === comparisons in getRate work — e.g.
   // owned 1 → 2nd property → SC 20%.
-  const propertiesOwnedN = parseInt(propertiesOwned) || 0;
+  // Owning an existing property implies at least 1 property owned before this
+  // purchase, so enforce a floor of 1 when "existing property" is Yes.
+  const propertiesOwnedN = existingProperty === "yes"
+    ? Math.max(1, parseInt(propertiesOwned) || 0)
+    : parseInt(propertiesOwned) || 0;
   const propertyCount = propertiesOwnedN + 1;
   const propertyCountLabel = propertyCount === 1 ? "1st" : propertyCount === 2 ? "2nd" : propertyCount === 3 ? "3rd" : "4th+";
   const buyersArr = buyerIdx.map(i => ({ citizenship: buyerCitizenships[i] }));
@@ -1783,11 +1787,21 @@ function WealthPlannerCalc() {
         <div className="nd-field nd-full">
           <label className="nd-label">Properties Currently Owned (before this purchase)</label>
           <div className="nd-segment" style={{marginBottom: 0}}>
-            {["0","1","2","3"].map(nn => (
-              <button key={nn} className={`nd-seg-btn ${propertiesOwned === nn ? "active" : ""}`} onClick={() => setPropertiesOwned(nn)}>
-                {nn === "3" ? "3+" : nn}
-              </button>
-            ))}
+            {["0","1","2","3"].map(nn => {
+              // Owning an existing property means the "0" option is invalid.
+              const disabled = existingProperty === "yes" && nn === "0";
+              return (
+                <button
+                  key={nn}
+                  disabled={disabled}
+                  className={`nd-seg-btn ${String(propertiesOwnedN) === nn ? "active" : ""}`}
+                  onClick={() => { if (!disabled) setPropertiesOwned(nn); }}
+                  style={disabled ? {opacity: 0.4, cursor: "not-allowed"} : undefined}
+                >
+                  {nn === "3" ? "3+" : nn}
+                </button>
+              );
+            })}
           </div>
         </div>
         <div className="nd-field">
