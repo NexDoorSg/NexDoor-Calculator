@@ -1161,12 +1161,19 @@ function WealthPlannerCalc() {
   const [buyerIncomes, setBuyerIncomes] = useState(["", "", "", ""]);
   const [buyerDebts, setBuyerDebts] = useState(["", "", "", ""]);
   const [buyerOaBalances, setBuyerOaBalances] = useState(["", "", "", ""]);
-  const [citizenship, setCitizenship] = useState("SC");
-  const [propCount, setPropCount] = useState("1");
+  const [buyerCitizenships, setBuyerCitizenships] = useState(["SC", "SC", "SC", "SC"]);
+  const [propertiesOwned, setPropertiesOwned] = useState("0"); // owned before this purchase
   const [propType, setPropType] = useState("Condo");
   const [prefSize, setPrefSize] = useState("any");
   const [rate, setRate] = useState("4.0");
   const [reserves, setReserves] = useState(50000);
+
+  // Pure-buyer (not selling) extra fields — existing property + cash savings.
+  const [existingProperty, setExistingProperty] = useState("no"); // "yes" | "no"
+  const [existingLoanBal, setExistingLoanBal] = useState("");
+  const [existingTenure, setExistingTenure] = useState("25");
+  const [existingRate, setExistingRate] = useState("3.50");
+  const [cashSavings, setCashSavings] = useState("");
 
   // Section C — projects
   const [loading, setLoading] = useState(false);
@@ -1262,14 +1269,67 @@ function WealthPlannerCalc() {
   const maxRepayment = Math.max(0, Math.min(tdsrRepayment, msrRepayment));
   const maxLoan = (r > 0 && n > 0) ? maxRepayment * ((Math.pow(1 + r, n) - 1) / (r * Math.pow(1 + r, n))) : 0;
 
-  // Estimated purchase price at 75% LTV, used to size stamp duties + CPF cap.
-  const estPrice = maxLoan / 0.75;
-  const bsd = estPrice > 0 ? calcBSD(estPrice) : 0;
-  const absd = estPrice > 0 ? getABSD(PROFILE_TO_ABSD[citizenship], parseInt(propCount), estPrice) : 0;
+  // ── Existing-property mortgage (pure-buyer flow only) reduces TDSR + LTV ──
+  const calcMonthlyMortgage = (P, years, annualRate) => {
+    const rr = annualRate / 12 / 100;
+    const nn = years * 12;
+    if (nn <= 0 || P <= 0) return 0;
+    if (rr === 0) return P / nn;
+    return P * (rr * Math.pow(1 + rr, nn)) / (Math.pow(1 + rr, nn) - 1);
+  };
+  const calcMaxLoanFromPayment = (payment, years, annualRate) => {
+    const rr = annualRate / 12 / 100;
+    const nn = years * 12;
+    if (nn <= 0 || payment <= 0) return 0;
+    if (rr === 0) return payment * nn;
+    return payment * ((Math.pow(1 + rr, nn) - 1) / (rr * Math.pow(1 + rr, nn)));
+  };
 
-  // CPF OA usable toward the 20% non-cash downpayment, shared across buyers and
+  const existingLoanBalN = num(existingLoanBal);
+  const hasOutstandingLoan = !selling && existingProperty === "yes" && existingLoanBalN > 0;
+  const existingMonthly = hasOutstandingLoan
+    ? calcMonthlyMortgage(existingLoanBalN, parseInt(existingTenure) || 0, num(existingRate))
+    : 0;
+
+  // Existing mortgage eats into TDSR capacity, lowering the new max loan.
+  const ltvBasedMaxLoan = maxLoan; // base TDSR/MSR max without existing commitment
+  const remainingDebtCapacity = Math.max(0, maxRepayment - existingMonthly);
+  const maxLoanFromTdsr = hasOutstandingLoan
+    ? calcMaxLoanFromPayment(remainingDebtCapacity, maxTenure, num(rate))
+    : maxLoan;
+  const newMaxLoan = hasOutstandingLoan ? Math.min(ltvBasedMaxLoan, maxLoanFromTdsr) : maxLoan;
+
+  // An outstanding home loan drops LTV to 45% (min 25% cash downpayment).
+  const standardLtv = 0.75;
+  const effectiveLtv = hasOutstandingLoan ? 0.45 : standardLtv;
+  const minCashPct = hasOutstandingLoan ? 0.25 : 0.05;
+
+  // Estimated purchase price from loan + LTV; sizes stamp duties + CPF cap.
+  const estPrice = effectiveLtv > 0 ? newMaxLoan / effectiveLtv : 0;
+  const estimateBuyerLegal = (price) => price <= 500000 ? 2500 : price <= 1000000 ? 3000 : price <= 2000000 ? 3500 : 4000;
+  const bsd = estPrice > 0 ? calcBSD(estPrice) : 0;
+
+  // ── ABSD (2024 rates): highest rate across buyers by citizenship + count ──
+  const propertiesOwnedN = parseInt(propertiesOwned) || 0;
+  const buyersArr = buyerIdx.map(i => ({ citizenship: buyerCitizenships[i] }));
+  const calcAbsd = (buyers, price, owned) => {
+    const propertyCount = owned + 1;
+    const getRate = (cz, count) => {
+      if (cz === "SC") { if (count === 1) return 0; if (count === 2) return 0.20; return 0.30; }
+      if (cz === "PR") { if (count === 1) return 0.05; if (count === 2) return 0.30; return 0.35; }
+      if (cz === "Foreigner") return 0.60;
+      return 0.65; // Entity
+    };
+    const allSC = buyers.every(b => b.citizenship === "SC");
+    if (allSC && propertyCount === 1) return 0;
+    const highestRate = Math.max(...buyers.map(b => getRate(b.citizenship, propertyCount)));
+    return Math.round(price * highestRate);
+  };
+  const absd = estPrice > 0 ? calcAbsd(buyersArr, estPrice, propertiesOwnedN) : 0;
+
+  // CPF OA usable toward the non-cash downpayment (20% std, 30% when LTV 45%),
   // allocated proportionally to each buyer's OA balance.
-  const cpfCap = 0.20 * estPrice;
+  const cpfCap = Math.max(0, 1 - effectiveLtv - minCashPct) * estPrice;
   // Negative OA (after refund) can't fund a purchase, so floor each at 0.
   const totalOA = buyerIdx.reduce((s, i) => s + Math.max(0, buyerOaNum(i)), 0);
   const totalCpfContribution = Math.min(totalOA, cpfCap);
@@ -1279,7 +1339,16 @@ function WealthPlannerCalc() {
     return { i, name: buyerNameEffective(i), oa, contribution };
   });
 
-  const availableBudget = netProceeds + maxLoan + totalCpfContribution - reserves - bsd - absd;
+  // ── Purchase cost breakdown (at the estimated purchase price) ──
+  const downpayment = Math.max(0, estPrice - newMaxLoan);
+  const cashDownpayment = Math.max(0, downpayment - totalCpfContribution);
+  const optionFees = isHdb ? 5000 : Math.round(estPrice * 0.05);
+  const buyerLegal = estPrice > 0 ? estimateBuyerLegal(estPrice) : 0;
+  const totalCashRequired = cashDownpayment + optionFees + bsd + absd + buyerLegal;
+  const cashAvailable = selling ? netProceeds : num(cashSavings);
+  const cashShortfall = Math.max(0, totalCashRequired - cashAvailable);
+
+  const availableBudget = netProceeds + newMaxLoan + totalCpfContribution - reserves - bsd - absd;
 
   const findProjects = async () => {
     setLoading(true);
@@ -1477,12 +1546,9 @@ function WealthPlannerCalc() {
       <h2 className="nd-panel-title">Wealth Planner</h2>
       <p className="nd-panel-sub">Plan your next purchase — from sale proceeds to a shortlist of projects you can afford</p>
 
-      {/* ── Section A ── */}
-      <h3 className="nd-section-head" style={{marginTop: 0}}>Current Property (Selling)</h3>
-      <p className="nd-section-sub">If you're selling, we'll roll your net proceeds into your budget</p>
-
-      <div className="nd-toggle-row">
-        <span className="nd-toggle-label">I am selling a property</span>
+      {/* ── Are you selling? — the very first question ── */}
+      <div className="nd-toggle-row" style={{marginTop: 0}}>
+        <span className="nd-toggle-label">Are you selling your current property?</span>
         <div className="nd-segment" style={{marginBottom: 0, width: 180}}>
           <button className={`nd-seg-btn ${selling ? "active" : ""}`} onClick={() => setSelling(true)}>Yes</button>
           <button className={`nd-seg-btn ${!selling ? "active" : ""}`} onClick={() => setSelling(false)}>No</button>
@@ -1491,6 +1557,10 @@ function WealthPlannerCalc() {
 
       {selling && (
         <>
+          {/* ── Section A ── */}
+          <h3 className="nd-section-head">Current Property (Selling)</h3>
+          <p className="nd-section-sub">We'll roll your net sale proceeds into your budget</p>
+
           <div className="nd-field" style={{marginBottom: 16}}>
             <label className="nd-label">Number of Sellers</label>
             <div className="nd-segment" style={{marginBottom: 0, maxWidth: 320}}>
@@ -1648,6 +1718,15 @@ function WealthPlannerCalc() {
                 <p className="nd-section-sub" style={{margin: "6px 0 0", fontSize: 10}}>Auto-filled from sale proceeds — tap to edit</p>
               )}
             </div>
+            <div className="nd-field">
+              <label className="nd-label">Citizenship</label>
+              <select className="nd-select" value={buyerCitizenships[i]} onChange={e => upd(setBuyerCitizenships)(i, e.target.value)}>
+                <option value="SC">Singapore Citizen</option>
+                <option value="PR">Singapore PR</option>
+                <option value="Foreigner">Foreigner</option>
+                <option value="Entity">Entity / Company</option>
+              </select>
+            </div>
           </div>
           <p className="nd-section-sub" style={{margin: "10px 0 0", fontSize: 11}}>
             Can contribute up to <strong style={{color: "#00838F"}}>{fmtS(buyerCpf[i].contribution)}</strong> from CPF OA
@@ -1656,14 +1735,6 @@ function WealthPlannerCalc() {
       ))}
 
       <div className="nd-grid">
-        <div className="nd-field">
-          <label className="nd-label">Citizenship</label>
-          <select className="nd-select" value={citizenship} onChange={e => setCitizenship(e.target.value)}>
-            <option value="SC">Singapore Citizen</option>
-            <option value="SPR">Singapore PR</option>
-            <option value="FR">Foreigner</option>
-          </select>
-        </div>
         <div className="nd-field">
           <label className="nd-label">Property Type</label>
           <select className="nd-select" value={propType} onChange={e => setPropType(e.target.value)}>
@@ -1679,11 +1750,11 @@ function WealthPlannerCalc() {
           </div>
         )}
         <div className="nd-field nd-full">
-          <label className="nd-label">Property Count (including this purchase)</label>
+          <label className="nd-label">Properties Currently Owned (before this purchase)</label>
           <div className="nd-segment" style={{marginBottom: 0}}>
-            {["1","2","3"].map(nn => (
-              <button key={nn} className={`nd-seg-btn ${propCount === nn ? "active" : ""}`} onClick={() => setPropCount(nn)}>
-                {nn === "3" ? "3rd+" : `${nn}${nn === "1" ? "st" : "nd"}`}
+            {["0","1","2","3"].map(nn => (
+              <button key={nn} className={`nd-seg-btn ${propertiesOwned === nn ? "active" : ""}`} onClick={() => setPropertiesOwned(nn)}>
+                {nn === "3" ? "3+" : nn}
               </button>
             ))}
           </div>
@@ -1700,6 +1771,52 @@ function WealthPlannerCalc() {
           </div>
         </div>
       </div>
+
+      {/* ── Pure-buyer extras (only when not selling) ── */}
+      {!selling && (
+        <>
+          <h3 className="nd-section-head" style={{fontSize: 18}}>Existing Property</h3>
+          <div className="nd-toggle-row">
+            <span className="nd-toggle-label">Do you own an existing property?</span>
+            <div className="nd-segment" style={{marginBottom: 0, width: 180}}>
+              <button className={`nd-seg-btn ${existingProperty === "yes" ? "active" : ""}`} onClick={() => setExistingProperty("yes")}>Yes</button>
+              <button className={`nd-seg-btn ${existingProperty === "no" ? "active" : ""}`} onClick={() => setExistingProperty("no")}>No</button>
+            </div>
+          </div>
+
+          {existingProperty === "yes" && (
+            <div className="nd-grid">
+              <div className="nd-field">
+                <label className="nd-label">Outstanding Loan Balance</label>
+                <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="300,000" value={existingLoanBal} onChange={e => setExistingLoanBal(e.target.value)} /></div>
+              </div>
+              <div className="nd-field">
+                <label className="nd-label">Remaining Loan Tenure (years)</label>
+                <input className="nd-input" placeholder="25" value={existingTenure} onChange={e => setExistingTenure(e.target.value)} />
+              </div>
+              <div className="nd-field">
+                <label className="nd-label">Current Interest Rate (%)</label>
+                <input className="nd-input" placeholder="3.50" value={existingRate} onChange={e => setExistingRate(e.target.value)} />
+              </div>
+              <div className="nd-field">
+                <label className="nd-label">Est. Monthly Mortgage Payment</label>
+                <div className="nd-input-wrap" style={{background: "#EDE4D8", border: "1.5px solid #E8E4DE", borderRadius: 4}}>
+                  <span className="nd-prefix">S$ </span>
+                  <input className="nd-input" readOnly value={existingMonthly > 0 ? fmt(existingMonthly) : "—"} style={{background: "transparent", fontWeight: 600}} />
+                </div>
+              </div>
+            </div>
+          )}
+
+          <h3 className="nd-section-head" style={{fontSize: 18}}>Available Funds</h3>
+          <div className="nd-grid">
+            <div className="nd-field nd-full">
+              <label className="nd-label">Cash Savings Available</label>
+              <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="Total cash savings available for this purchase" value={cashSavings} onChange={e => setCashSavings(e.target.value)} /></div>
+            </div>
+          </div>
+        </>
+      )}
 
       <div className="nd-results" style={{marginTop: 8}}>
         <p className="nd-results-title">Available Budget</p>
@@ -1723,17 +1840,50 @@ function WealthPlannerCalc() {
 
         <div className="nd-breakdown">
           <div className="nd-breakdown-item"><p className="nd-breakdown-label">Net Cash Proceeds</p><p className="nd-breakdown-val">{selling ? fmtS(netProceeds) : "—"}</p></div>
-          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Max Loan ({isHdb ? "MSR 30% / TDSR 55%" : "TDSR 55%"})</p><p className="nd-breakdown-val">{fmtS(maxLoan)}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Max Loan ({Math.round(effectiveLtv * 100)}% LTV, {isHdb ? "MSR/TDSR" : "TDSR 55%"})</p><p className="nd-breakdown-val">{fmtS(newMaxLoan)}</p></div>
           <div className="nd-breakdown-item"><p className="nd-breakdown-label">Total CPF Contribution</p><p className="nd-breakdown-val">{fmtS(totalCpfContribution)}</p></div>
           <div className="nd-breakdown-item"><p className="nd-breakdown-label">Cash Reserves Held</p><p className="nd-breakdown-val">− {fmtS(reserves)}</p></div>
           <div className="nd-breakdown-item"><p className="nd-breakdown-label">BSD</p><p className="nd-breakdown-val">− {fmtS(bsd)}</p></div>
           <div className="nd-breakdown-item"><p className="nd-breakdown-label">ABSD</p><p className="nd-breakdown-val">{absd === 0 ? "—" : `− ${fmtS(absd)}`}</p></div>
-          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Est. Purchase Price (75% LTV)</p><p className="nd-breakdown-val">{fmtS(estPrice)}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Est. Purchase Price ({Math.round(effectiveLtv * 100)}% LTV)</p><p className="nd-breakdown-val">{fmtS(estPrice)}</p></div>
           <div className="nd-breakdown-item"><p className="nd-breakdown-label">Combined Income / Debt</p><p className="nd-breakdown-val">{fmtS(mi)} / {fmtS(md)}</p></div>
         </div>
 
+        {hasOutstandingLoan && (
+          <p className="nd-note" style={{marginTop: 16, color: "rgba(250,248,244,0.7)", background: "rgba(201,168,76,0.08)", borderLeftColor: "#C9A84C"}}>
+            ⚠ LTV reduced to 45% as you have an existing outstanding home loan. Minimum cash downpayment is 25% of the purchase price.
+          </p>
+        )}
+        {hasOutstandingLoan && newMaxLoan < ltvBasedMaxLoan && (
+          <p className="nd-note" style={{marginTop: 12, color: "rgba(250,248,244,0.7)", background: "rgba(201,168,76,0.08)", borderLeftColor: "#C9A84C"}}>
+            ⚠ Your existing mortgage commitment of {fmtS(existingMonthly)}/month reduces your maximum new loan to {fmtS(newMaxLoan)} (TDSR-adjusted). Without existing commitment, LTV alone would allow up to {fmtS(ltvBasedMaxLoan)}.
+          </p>
+        )}
+
+        <p className="nd-results-title" style={{marginTop: 24}}>Estimated Purchase Cost</p>
+        <div className="nd-breakdown">
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Purchase Price</p><p className="nd-breakdown-val">{fmtS(estPrice)}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Max Loan ({Math.round(effectiveLtv * 100)}% LTV)</p><p className="nd-breakdown-val">{fmtS(newMaxLoan)}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Total Downpayment</p><p className="nd-breakdown-val">{fmtS(downpayment)}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label" style={{paddingLeft: 12}}>of which — CPF</p><p className="nd-breakdown-val">{fmtS(totalCpfContribution)}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label" style={{paddingLeft: 12}}>of which — Cash</p><p className="nd-breakdown-val">{fmtS(cashDownpayment)}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Option + Exercise Fees</p><p className="nd-breakdown-val">{fmtS(optionFees)}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Buyer's Stamp Duty (BSD)</p><p className="nd-breakdown-val">{fmtS(bsd)}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Additional Buyer's Stamp Duty (ABSD)</p><p className="nd-breakdown-val" style={{color: absd > 0 ? "#ef5350" : undefined}}>{absd > 0 ? fmtS(absd) : "Not applicable"}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Est. Legal Fees</p><p className="nd-breakdown-val">{fmtS(buyerLegal)}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Total Cash Required</p><p className="nd-breakdown-val" style={{color: "#C9A84C", fontWeight: 700}}>{fmtS(totalCashRequired)}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Cash Available ({selling ? "net proceeds" : "savings"})</p><p className="nd-breakdown-val">{fmtS(cashAvailable)}</p></div>
+          <div className="nd-breakdown-item"><p className="nd-breakdown-label">Cash Shortfall</p><p className="nd-breakdown-val" style={{color: cashShortfall > 0 ? "#ef5350" : "#4caf50"}}>{cashShortfall > 0 ? fmtS(cashShortfall) : "None"}</p></div>
+        </div>
+
+        {absd > 0 && (
+          <p className="nd-note" style={{marginTop: 16, color: "#ef9a9a", background: "rgba(239,83,80,0.08)", borderLeftColor: "#ef5350"}}>
+            ⚠ ABSD of {fmtS(absd)} is payable within 14 days of signing the OTP and must be paid in cash. It cannot be paid using CPF.
+          </p>
+        )}
+
         <p className="nd-note" style={{marginTop: 16, color: "rgba(250,248,244,0.55)", background: "rgba(255,255,255,0.04)", borderLeftColor: "#C9A84C"}}>
-          {selling ? `Net Proceeds ${fmtS(netProceeds)} + ` : ""}Max Loan {fmtS(maxLoan)} + CPF {fmtS(totalCpfContribution)} − Reserves {fmtS(reserves)} − Stamp Duties {fmtS(bsd + absd)} = <strong style={{color:"#C9A84C"}}>{fmtS(availableBudget)}</strong>
+          {selling ? `Net Proceeds ${fmtS(netProceeds)} + ` : ""}Max Loan {fmtS(newMaxLoan)} + CPF {fmtS(totalCpfContribution)} − Reserves {fmtS(reserves)} − Stamp Duties {fmtS(bsd + absd)} = <strong style={{color:"#C9A84C"}}>{fmtS(availableBudget)}</strong>
         </p>
 
         <div style={{marginTop: 12, display: "flex", flexWrap: "wrap", gap: 8, fontSize: 12, color: "rgba(250,248,244,0.7)"}}>
