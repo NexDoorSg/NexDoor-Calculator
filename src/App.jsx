@@ -901,6 +901,34 @@ const MRT_LINE_COLORS = {
   JRL: "#0099AA",
 };
 
+// Maps the sgraildata operational line names (public/mrt-lines.geojson) onto the
+// official MRT_LINE_COLORS codes so routes match the station markers' colours.
+const RAIL_NAME_TO_CODE = {
+  "North South Line": "NSL",
+  "East West Line": "EWL",
+  "North East Line": "NEL",
+  "Circle Line": "CCL",
+  "Downtown Line": "DTL",
+  "Thomson-East Coast Line": "TEL",
+};
+const LRT_COLOR = "#718096"; // Bukit Panjang / Sengkang / Punggol LRT loops (no LTA code)
+
+// Approximate future-line routes: each line maps to one or more ordered branches,
+// drawn as dashed straight-line connectors (NOT real tunnel geometry). CRL is a
+// single east→west corridor. JRL is a 3-branch network meeting at Bahar Junction,
+// so it's split into its branches (each rooted at the junction) — no single line
+// jumps across branches. Station order is nearest-neighbour within each branch.
+const FUTURE_ROUTES = {
+  CRL: [
+    ["Aviation Park", "Loyang", "Pasir Ris East", "Tampines North", "Defu", "Serangoon North", "Teck Ghee", "Turf City", "Maju", "West Coast", "Jurong Lake District"],
+  ],
+  JRL: [
+    ["Bahar Junction", "Jurong West", "Corporation", "Hong Kah", "Tengah", "Peng Kang Hill", "Tengah Park", "Choa Chu Kang West", "Bukit Batok West"],
+    ["Bahar Junction", "Tawas", "Gek Poh", "Nanyang Gateway", "Nanyang Crescent"],
+    ["Bahar Junction", "Pandan Reservoir", "Jurong Pier"],
+  ],
+};
+
 // Static MRT/LRT station dataset (open + future CRL/JRL) used for the map's MRT
 // layer — filtered client-side, no API call.
 const MRT_STATIONS = [
@@ -1599,6 +1627,45 @@ function WealthPlannerCalc() {
       attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
     }).addTo(map);
     mapRef.current = map;
+
+    // Rail lines live in their own pane, above tiles (200) but below the
+    // station/project markers (600), so pins always sit on top of the routes.
+    map.createPane("railLines");
+    map.getPane("railLines").style.zIndex = 250;
+
+    // Solid operational-line routes from the vendored sgraildata GeoJSON,
+    // coloured by the official MRT_LINE_COLORS (LRT loops get a neutral grey).
+    fetch("/mrt-lines.geojson")
+      .then(r => r.json())
+      .then(geo => {
+        if (!mapRef.current) return;
+        L.geoJSON(geo, {
+          pane: "railLines",
+          style: f => {
+            const code = RAIL_NAME_TO_CODE[f.properties && f.properties.name];
+            return { color: code ? MRT_LINE_COLORS[code] : LRT_COLOR, weight: 3, opacity: 0.75 };
+          },
+        }).addTo(mapRef.current);
+      })
+      .catch(() => {});
+
+    // Approximate future lines (CRL / JRL): dashed connectors between ordered
+    // station points — thinner + lower opacity so they read as tentative.
+    const stationLL = {};
+    MRT_STATIONS.forEach(s => { stationLL[s.name] = [s.lat, s.lon]; });
+    Object.entries(FUTURE_ROUTES).forEach(([code, branches]) => {
+      branches.forEach(names => {
+        const pts = names.map(n => stationLL[n]).filter(Boolean);
+        if (pts.length < 2) return;
+        L.polyline(pts, {
+          pane: "railLines",
+          color: MRT_LINE_COLORS[code] || "#009AA6",
+          weight: 2,
+          opacity: 0.5,
+          dashArray: "6,6",
+        }).addTo(map);
+      });
+    });
 
     projects.forEach(p => {
       if (!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) return;
