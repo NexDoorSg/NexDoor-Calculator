@@ -1132,6 +1132,126 @@ const SIZE_OPTIONS = [
   { id: "xlarge",       label: "1,300 sqft+ (4-bed+)",            sizeMin: 1300, sizeMax: null },
 ];
 
+// Base for the public NexDoor Office APIs consumed by the shortlist accordion.
+const OFFICE_BASE = "https://app.nexdoor.sg";
+
+// Profitable/loss split bar shown in a collapsed shortlist row.
+function ProjectProfitBar({ prof }) {
+  const green = Math.max(0, Math.min(100, prof.profitablePct));
+  const red = Math.max(0, Math.min(100, prof.nonProfitablePct));
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ display: "flex", height: 6, borderRadius: 4, overflow: "hidden", background: "#F0EDE8" }}>
+        <div style={{ width: `${green}%`, background: "#2E8B57" }} />
+        <div style={{ width: `${red}%`, background: "#C0562F" }} />
+      </div>
+      <div style={{ marginTop: 6, fontSize: 12, fontFamily: "'DM Sans', sans-serif" }}>
+        <span style={{ color: "#2E8B57", fontWeight: 600 }}>{green}% profitable</span>
+        <span style={{ color: "#8A8A8A" }}> · </span>
+        <span style={{ color: "#C0562F", fontWeight: 600 }}>{red}% loss</span>
+        <span style={{ color: "#8A8A8A" }}> · {prof.totalPaired} paired</span>
+      </div>
+    </div>
+  );
+}
+
+// One shortlist row. Fetches all-time profitability + TOP from the public Office
+// endpoint on mount; a failed/empty fetch simply omits those fields (never
+// breaks the row). Median price/PSF render immediately from existing data.
+function ProjectAccordionItem({ p, category, fmtDate, fmtTypicalSize }) {
+  const [expanded, setExpanded] = useState(false);
+  const [prof, setProf] = useState(null);
+  const [profState, setProfState] = useState("loading"); // "loading" | "ok" | "error"
+
+  useEffect(() => {
+    let active = true;
+    setProfState("loading");
+    setProf(null);
+    fetch(`${OFFICE_BASE}/api/projects/${encodeURIComponent(p.name)}/profitability-summary`)
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then((d) => { if (active) { setProf(d); setProfState("ok"); } })
+      .catch(() => { if (active) setProfState("error"); });
+    return () => { active = false; };
+  }, [p.name]);
+
+  const hasProfit =
+    profState === "ok" && prof && typeof prof.profitablePct === "number" && prof.totalPaired > 0;
+  const topYear =
+    profState === "ok" && prof && prof.completionYear != null ? prof.completionYear : null;
+  const showFullAnalysis = category !== "landed";
+
+  return (
+    <div className="nd-proj-card" style={{ padding: 0, overflow: "hidden" }}>
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        aria-expanded={expanded}
+        style={{ background: "none", border: "none", font: "inherit", textAlign: "left", width: "100%", boxSizing: "border-box", padding: 18, cursor: "pointer", display: "block" }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+          <div style={{ minWidth: 0 }}>
+            <div className="nd-proj-name">{p.name}</div>
+            <div style={{ fontSize: 13, color: "#0D1F3C", fontFamily: "'DM Sans', sans-serif", marginTop: 3 }}>
+              <strong style={{ color: "#C9A84C" }}>{fmtS(p.medianPrice)}</strong>
+              <span style={{ color: "#8A8A8A" }}> median · PSF </span>
+              <strong>{p.medianPsf ? fmtS(p.medianPsf) : "—"}</strong>
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
+            {topYear != null && (
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 9, letterSpacing: 1, textTransform: "uppercase", color: "#8A8A8A" }}>TOP</div>
+                <div style={{ fontSize: 14, color: "#0D1F3C", fontWeight: 600 }}>{topYear}</div>
+              </div>
+            )}
+            <span style={{ fontSize: 18, color: "#00838F", lineHeight: 1, transform: expanded ? "rotate(90deg)" : "none", transition: "transform .15s" }}>›</span>
+          </div>
+        </div>
+
+        {profState === "loading" && (
+          <div style={{ marginTop: 10, fontSize: 12, color: "#B0B0B0", fontFamily: "'DM Sans', sans-serif" }}>
+            Loading profitability…
+          </div>
+        )}
+        {hasProfit && <ProjectProfitBar prof={prof} />}
+      </button>
+
+      {expanded && (
+        <div style={{ padding: "0 18px 18px", borderTop: "1px solid #F0EDE8" }}>
+          <div className="nd-proj-meta" style={{ borderTop: "none", paddingTop: 14 }}>
+            <div>
+              <p className="nd-proj-meta-label">District</p>
+              <p className="nd-proj-meta-val">{p.district || "—"}</p>
+            </div>
+            <div>
+              <p className="nd-proj-meta-label">Transactions</p>
+              <p className="nd-proj-meta-val">{p.txCount}</p>
+            </div>
+            <div>
+              <p className="nd-proj-meta-label">Last Sold</p>
+              <p className="nd-proj-meta-val">{fmtDate(p.lastTxDate)}</p>
+            </div>
+            <div>
+              <p className="nd-proj-meta-label">Typical Size</p>
+              <p className="nd-proj-meta-val">{fmtTypicalSize(p)}</p>
+            </div>
+          </div>
+          {showFullAnalysis && (
+            <a
+              href={`${OFFICE_BASE}/dashboard/projects/${encodeURIComponent(p.name)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ display: "inline-block", marginTop: 14, fontSize: 13, fontWeight: 600, color: "#00838F", textDecoration: "none" }}
+            >
+              View Full Analysis →
+            </a>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function WealthPlannerCalc() {
   // Section A — selling (up to 4 sellers)
   const [selling, setSelling] = useState(false);
@@ -1178,6 +1298,7 @@ function WealthPlannerCalc() {
   // Section C — projects
   const [loading, setLoading] = useState(false);
   const [projects, setProjects] = useState(null);
+  const [resultCategory, setResultCategory] = useState(null); // category of the current result set (for landed link gating)
   const [fetchError, setFetchError] = useState(null);
   const [selectedDistricts, setSelectedDistricts] = useState([]); // [] = island-wide
   const [viewMode, setViewMode] = useState("list"); // "list" | "map"
@@ -1397,6 +1518,7 @@ function WealthPlannerCalc() {
     try {
       const budget = Math.max(0, Math.round(availableBudget));
       const category = TYPE_TO_CATEGORY[propType];
+      setResultCategory(category);
       const params = new URLSearchParams({ budget: String(budget), category });
       // Size preference only applies to non-landed types.
       const size = SIZE_OPTIONS.find(o => o.id === prefSize);
@@ -1981,32 +2103,15 @@ function WealthPlannerCalc() {
           </div>
 
           {viewMode === "list" && (
-            <div className="nd-proj-grid">
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
               {projects.map((p, i) => (
-                <div className="nd-proj-card" key={`${p.name}-${i}`}>
-                  <div className="nd-proj-name">{p.name}</div>
-                  <div className="nd-proj-district">{p.district || "—"}</div>
-                  <div className="nd-proj-price">{fmtS(p.medianPrice)}</div>
-                  <div className="nd-proj-meta">
-                    <div>
-                      <p className="nd-proj-meta-label">Median PSF</p>
-                      <p className="nd-proj-meta-val">{p.medianPsf ? `S$ ${fmt(p.medianPsf)}` : "—"}</p>
-                    </div>
-                    <div>
-                      <p className="nd-proj-meta-label">Transactions</p>
-                      <p className="nd-proj-meta-val">{p.txCount}</p>
-                    </div>
-                    <div>
-                      <p className="nd-proj-meta-label">Last Sold</p>
-                      <p className="nd-proj-meta-val">{fmtDate(p.lastTxDate)}</p>
-                    </div>
-                    <div>
-                      <p className="nd-proj-meta-label">District</p>
-                      <p className="nd-proj-meta-val">{p.district || "—"}</p>
-                    </div>
-                  </div>
-                  <div className="nd-proj-size">Typical size: <strong>{fmtTypicalSize(p)}</strong></div>
-                </div>
+                <ProjectAccordionItem
+                  key={`${p.name}-${i}`}
+                  p={p}
+                  category={resultCategory}
+                  fmtDate={fmtDate}
+                  fmtTypicalSize={fmtTypicalSize}
+                />
               ))}
             </div>
           )}
