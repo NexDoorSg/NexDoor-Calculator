@@ -1593,9 +1593,10 @@ function WealthPlannerCalc() {
     if (!L || !mapContainerRef.current) return;
 
     const map = L.map(mapContainerRef.current).setView(SG_CENTER, 12);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "&copy; OpenStreetMap contributors",
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+      maxZoom: 20,
+      subdomains: "abcd",
+      attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
     }).addTo(map);
     mapRef.current = map;
 
