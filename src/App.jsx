@@ -259,6 +259,9 @@ style.textContent = `
   .nd-loading-text { font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; color: #8A8A8A; }
   .nd-empty-box { padding: 32px 20px; text-align: center; font-size: 13px; color: #8A8A8A; background: white; border: 1.5px dashed #E8E4DE; border-radius: 6px; }
 
+  /* Emphasis: dim the whole clustered marker pane; the highlight/project panes stay bright. */
+  .leaflet-container.nd-dim .leaflet-marker-pane { opacity: 0.16 !important; transition: opacity 0.15s; }
+
   .mrt-tooltip {
     background: white;
     border: 1px solid rgba(0,0,0,0.15);
@@ -1150,6 +1153,69 @@ const AMENITY_TYPES = [
   { id: "hawker", label: "Hawkers" },
 ];
 
+// One "Schools" layer, colour-coded by level. Sourced from public/schools.json
+// (MOE primary/secondary/JC dataset geocoded via OneMap + curated tertiary list).
+const SCHOOL_LEVEL_COLORS = {
+  primary: "#2E8B57",
+  secondary: "#1E6FBF",
+  jc: "#8E44AD",
+  mixed: "#16A085",
+  tertiary: "#C0562F",
+};
+const SCHOOL_LEVEL_LABELS = {
+  primary: "Primary",
+  secondary: "Secondary",
+  jc: "JC / MI",
+  mixed: "Mixed level",
+  tertiary: "Tertiary",
+};
+
+// Neutral cluster-badge colour per amenity category (individual markers keep
+// their own per-line / per-level colour).
+const AMENITY_CLUSTER_COLORS = { mrt: "#16668c", school: "#2E8B57", hawker: "#E67E22" };
+const HAWKER_COLOR = "#E67E22";
+
+// Small round marker for an amenity dot (colour-coded).
+function amenityDotIcon(color) {
+  return window.L.divIcon({
+    html: `<div style="width:13px;height:13px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)"></div>`,
+    className: "", iconSize: [13, 13], iconAnchor: [7, 7],
+  });
+}
+// Unmistakable labelled pin for a suggested project — a navy pill showing the
+// project name (gold accent + pointer tail), in a navy/gold combo no amenity or
+// MRT line uses, so shortlisted projects always stand out and are named on-map.
+function projectPinIcon(name) {
+  const label = (name || "Project").length > 26 ? name.slice(0, 24) + "…" : (name || "Project");
+  const w = Math.round(label.length * 7.2 + 46);
+  const h = 34;
+  return window.L.divIcon({
+    className: "",
+    html: `<div style="position:relative;width:${w}px;height:${h}px">
+      <div style="position:absolute;top:0;left:0;width:${w}px;display:flex;align-items:center;gap:6px;box-sizing:border-box;background:#0D1F3C;color:#fff;border:2px solid #C9A84C;border-radius:9px;padding:5px 10px;font-family:'DM Sans',sans-serif;font-weight:600;font-size:12px;white-space:nowrap;box-shadow:0 3px 6px rgba(0,0,0,.4)">
+        <span style="width:8px;height:8px;border-radius:50%;background:#C9A84C;flex-shrink:0"></span>
+        <span style="overflow:hidden;text-overflow:ellipsis">${label}</span>
+      </div>
+      <div style="position:absolute;left:50%;top:25px;transform:translateX(-50%);width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:8px solid #0D1F3C"></div>
+    </div>`,
+    iconSize: [w, h],
+    iconAnchor: [w / 2, h - 1],
+    popupAnchor: [0, -h],
+  });
+}
+
+// Cluster badge icon (neutral category colour + child count).
+function amenityClusterIcon(color) {
+  return function (cluster) {
+    const n = cluster.getChildCount();
+    const s = n < 10 ? 32 : n < 40 ? 40 : 48;
+    return window.L.divIcon({
+      html: `<div style="background:${color};width:${s}px;height:${s}px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:13px;border:3px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.35)">${n}</div>`,
+      className: "", iconSize: [s, s],
+    });
+  };
+}
+
 // Preferred size options -> sqft band sent to the project-matcher API.
 const SIZE_OPTIONS = [
   { id: "any",          label: "Any size",                       sizeMin: null, sizeMax: null },
@@ -1330,21 +1396,25 @@ function WealthPlannerCalc() {
   const [fetchError, setFetchError] = useState(null);
   const [selectedDistricts, setSelectedDistricts] = useState([]); // [] = island-wide
   const [viewMode, setViewMode] = useState("list"); // "list" | "map"
-  const [activeAmenity, setActiveAmenity] = useState(null); // null | "mrt" | "school" | "hawker"
   const [selectedProjectLatLon, setSelectedProjectLatLon] = useState(null); // { lat, lon }
-  const [amenityLoading, setAmenityLoading] = useState(false);
-  const [amenityError, setAmenityError] = useState(null);
-  const [amenityMessage, setAmenityMessage] = useState(null);
+  // Always-on amenity layers; the toggle chips just show/hide each one.
+  const [visibleLayers, setVisibleLayers] = useState({ mrt: true, school: true, hawker: true });
+  const [schools, setSchools] = useState(null); // MOE primary/sec/JC + tertiary (public/schools.json)
+  const [hawkers, setHawkers] = useState(null); // NEA hawker centres (public/hawkers.json)
 
   // Leaflet map instance + marker bookkeeping (refs so re-renders don't reset).
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
-  const amenityMarkersRef = useRef([]);
+  const clusterRefs = useRef(null);      // { mrt, school, hawker } markerClusterGroups
+  const amenityDataRef = useRef([]);     // [{ m, ll, color, title, sub }] for emphasis + distance
+  const highlightRef = useRef(null);     // emphasis overlay layerGroup
+  const radiusCircleRef = useRef(null);  // emphasis 2km circle
 
-  // Toggle an amenity layer on/off; only one type is active at a time.
-  const toggleAmenity = (type) => {
-    setActiveAmenity(prev => (prev === type ? null : type));
-  };
+  // Load the static amenity datasets once (served from public/).
+  useEffect(() => {
+    fetch("/schools.json").then(r => r.json()).then(setSchools).catch(() => setSchools([]));
+    fetch("/hawkers.json").then(r => r.json()).then(setHawkers).catch(() => setHawkers([]));
+  }, []);
 
   const num = (v) => parseFloat(v) || 0;
   // Curried array-state updater for the per-seller / per-buyer fields.
@@ -1538,11 +1608,8 @@ function WealthPlannerCalc() {
     setLoading(true);
     setFetchError(null);
     setProjects(null);
-    // Fresh result set → clear any selected project / active amenity layer.
+    // Fresh result set → clear any selected project (the map rebuilds fresh).
     setSelectedProjectLatLon(null);
-    setActiveAmenity(null);
-    setAmenityError(null);
-    setAmenityMessage(null);
     try {
       const budget = Math.max(0, Math.round(availableBudget));
       const category = TYPE_TO_CATEGORY[propType];
@@ -1593,15 +1660,40 @@ function WealthPlannerCalc() {
       <div style="font-size:12px;color:#555">${p.txCount} transactions</div>
     </div>`;
 
-  // Remove any MRT/amenity markers from a previous project click.
-  const clearAmenityMarkers = () => {
-    if (mapRef.current) amenityMarkersRef.current.forEach(m => mapRef.current.removeLayer(m));
-    amenityMarkersRef.current = [];
-  };
+  // Toggle a whole amenity category on/off (all layers are on by default).
+  const toggleLayer = (id) => setVisibleLayers(prev => ({ ...prev, [id]: !prev[id] }));
 
-  // Two-line permanent tooltip: bold name, smaller grey distance line below.
-  const amenityTooltipHtml = (name, subline) =>
-    `${name}<div class="mrt-tooltip-dist">${subline}</div>`;
+  // Emphasise amenities within 2km of a clicked project: dim the clustered
+  // marker pane, overlay bright individual dots (with distance) on top, draw the
+  // 2km radius and zoom to frame it. Pure style/overlay — no data fetch.
+  const emphasiseProject = (center) => {
+    const map = mapRef.current; const L = window.L;
+    if (!map || !L) return;
+    if (radiusCircleRef.current) map.removeLayer(radiusCircleRef.current);
+    if (highlightRef.current) map.removeLayer(highlightRef.current);
+    const hl = L.layerGroup(); highlightRef.current = hl;
+    const circle = L.circle(center, { radius: 2000, color: "#B84C30", weight: 1.5, fill: false, dashArray: "5,5" }).addTo(map);
+    radiusCircleRef.current = circle;
+    map.getContainer().classList.add("nd-dim");
+    (amenityDataRef.current || []).forEach(o => {
+      const d = Math.round(center.distanceTo(o.ll));
+      if (d > 2000) return;
+      const hm = L.marker(o.ll, { pane: "hl", icon: amenityDotIcon(o.color) });
+      hm.bindTooltip(`${o.title} — ${d}m`, { direction: "top", opacity: 0.95 });
+      hm.bindPopup(`<b>${o.title}</b>${o.sub ? `<br><span style="color:#666">${o.sub}</span>` : ""}<br><b style="color:#B84C30">${d}m from project</b>`);
+      hl.addLayer(hm);
+    });
+    hl.addTo(map);
+    map.fitBounds(circle.getBounds(), { padding: [30, 30] });
+  };
+  const clearEmphasis = () => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (radiusCircleRef.current) { map.removeLayer(radiusCircleRef.current); radiusCircleRef.current = null; }
+    if (highlightRef.current) { map.removeLayer(highlightRef.current); highlightRef.current = null; }
+    map.getContainer().classList.remove("nd-dim");
+    setSelectedProjectLatLon(null);
+  };
 
   const toggleDistrict = (code) => {
     setSelectedDistricts(prev =>
@@ -1617,6 +1709,7 @@ function WealthPlannerCalc() {
   // cleanup destroys it so a new result set rebuilds a fresh map.
   useEffect(() => {
     if (viewMode !== "map" || !projects || projects.length === 0) return;
+    if (!schools || !hawkers) return; // wait for the static amenity datasets
     const L = window.L;
     if (!L || !mapContainerRef.current) return;
 
@@ -1632,6 +1725,11 @@ function WealthPlannerCalc() {
     // station/project markers (600), so pins always sit on top of the routes.
     map.createPane("railLines");
     map.getPane("railLines").style.zIndex = 250;
+    // Emphasis overlay + project pins sit above the clustered markers (pane 600).
+    map.createPane("hl");
+    map.getPane("hl").style.zIndex = 680;
+    map.createPane("projPane");
+    map.getPane("projPane").style.zIndex = 690;
 
     // Solid operational-line routes from the vendored sgraildata GeoJSON,
     // coloured by the official MRT_LINE_COLORS (LRT loops get a neutral grey).
@@ -1667,13 +1765,42 @@ function WealthPlannerCalc() {
       });
     });
 
+    // --- always-on clustered amenity layers (MRT / Schools / Hawkers) ---
+    const mkGroup = (color) => L.markerClusterGroup({
+      iconCreateFunction: amenityClusterIcon(color),
+      maxClusterRadius: 55,
+      showCoverageOnHover: false,
+    });
+    const groups = {
+      mrt: mkGroup(AMENITY_CLUSTER_COLORS.mrt),
+      school: mkGroup(AMENITY_CLUSTER_COLORS.school),
+      hawker: mkGroup(AMENITY_CLUSTER_COLORS.hawker),
+    };
+    clusterRefs.current = groups;
+    const data = [];
+    const addAmenity = (group, lat, lon, color, title, sub) => {
+      const m = L.marker([lat, lon], { icon: amenityDotIcon(color) });
+      m.bindTooltip(title, { direction: "top", opacity: 0.95 });
+      m.bindPopup(`<b>${title}</b>${sub ? `<br><span style="color:#666">${sub}</span>` : ""}`);
+      groups[group].addLayer(m);
+      data.push({ m, ll: L.latLng(lat, lon), color, title, sub });
+    };
+    MRT_STATIONS.forEach(s => addAmenity("mrt", s.lat, s.lon, MRT_LINE_COLORS[s.line] || AMENITY_CLUSTER_COLORS.mrt, s.name, `${s.line}${s.status === "future" ? " • future" : ""}`));
+    (schools || []).forEach(s => addAmenity("school", s.lat, s.lon, SCHOOL_LEVEL_COLORS[s.level] || AMENITY_CLUSTER_COLORS.school, s.name, SCHOOL_LEVEL_LABELS[s.level] || s.level));
+    (hawkers || []).forEach(h => addAmenity("hawker", h.lat, h.lon, HAWKER_COLOR, h.name, `${h.status || ""}${h.stalls ? ` • ${h.stalls} stalls` : ""}`));
+    amenityDataRef.current = data;
+    highlightRef.current = L.layerGroup();
+    Object.keys(groups).forEach(k => { if (visibleLayers[k]) map.addLayer(groups[k]); });
+
+    // Project pins in their own pane (never dimmed). Click → emphasise nearby.
     projects.forEach(p => {
       if (!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) return;
-      const marker = L.marker([p.lat, p.lon]).addTo(map);
+      const marker = L.marker([p.lat, p.lon], { pane: "projPane", icon: projectPinIcon(p.name), zIndexOffset: 1000 }).addTo(map);
       marker.bindPopup(projectPopupHtml(p));
-      // Clicking a pin selects that project; the amenity effect renders the
-      // active layer (if any) around it.
-      marker.on("click", () => setSelectedProjectLatLon({ lat: p.lat, lon: p.lon }));
+      marker.on("click", () => {
+        setSelectedProjectLatLon({ lat: p.lat, lon: p.lon });
+        emphasiseProject(L.latLng(p.lat, p.lon));
+      });
     });
 
     // The container was just revealed; let Leaflet recompute its size.
@@ -1681,90 +1808,29 @@ function WealthPlannerCalc() {
 
     return () => {
       clearTimeout(t);
-      amenityMarkersRef.current = [];
+      amenityDataRef.current = [];
+      clusterRefs.current = null;
+      highlightRef.current = null;
+      radiusCircleRef.current = null;
       map.remove();
       mapRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, projects]);
+  }, [viewMode, projects, schools, hawkers]);
 
-  // Render the active amenity layer around the selected project. Re-runs when
-  // the toggle or the selected project changes. MRT is local; schools/hawkers
-  // hit the API (with loading + error states).
+  // Show/hide each cluster group when the toggle chips change (or after the map
+  // is rebuilt for a new result set / dataset load).
   useEffect(() => {
-    if (viewMode !== "map") return;
-    const L = window.L;
-    if (!mapRef.current || !L) return;
-
-    clearAmenityMarkers();
-    setAmenityError(null);
-    setAmenityMessage(null);
-    setAmenityLoading(false);
-
-    if (!activeAmenity) return;
-    if (!selectedProjectLatLon) {
-      setAmenityMessage("Select a project pin first");
-      return;
-    }
-
-    const { lat, lon } = selectedProjectLatLon;
-
-    if (activeAmenity === "mrt") {
-      // Static dataset, filtered to within 1.5km and deduped by name.
-      const nearest = new Map();
-      MRT_STATIONS.forEach(s => {
-        const dist = Math.round(haversineM(lat, lon, s.lat, s.lon));
-        if (dist > 1500) return;
-        const existing = nearest.get(s.name);
-        if (!existing || dist < existing.dist) nearest.set(s.name, { ...s, dist });
-      });
-      nearest.forEach(s => {
-        const future = s.status === "future";
-        const lineColor = MRT_LINE_COLORS[s.line] || "#00838F";
-        const marker = L.circleMarker([s.lat, s.lon], future
-          ? { radius: 9, color: lineColor, fillColor: lineColor, fillOpacity: 0.3, weight: 2.5, dashArray: "5" }
-          : { radius: 9, color: "#FFFFFF", fillColor: lineColor, fillOpacity: 0.9, weight: 2 }
-        ).addTo(mapRef.current);
-        const subline = `${s.line} • ${s.dist}m${future ? " (soon)" : ""}`;
-        marker.bindTooltip(amenityTooltipHtml(s.name, subline), { permanent: true, direction: "top", className: "mrt-tooltip" });
-        marker.bindPopup(
-          `<b>${s.name}</b><br><span style="color:${lineColor}">${s.line}</span> • ${s.dist}m away${future ? " (Coming soon)" : ""}`
-        );
-        amenityMarkersRef.current.push(marker);
-      });
-      return;
-    }
-
-    // Schools / hawkers → API.
-    const color = activeAmenity === "school" ? "#009645" : "#FA9E0D";
-    let cancelled = false;
-    setAmenityLoading(true);
-    (async () => {
-      try {
-        const res = await fetch(`${NEARBY_AMENITIES_URL}?lat=${lat}&lon=${lon}&type=${activeAmenity}`);
-        if (!res.ok) throw new Error(`Request failed (${res.status})`);
-        const data = await res.json();
-        if (cancelled || !mapRef.current) return;
-        const items = Array.isArray(data.results) ? data.results : [];
-        items.forEach(item => {
-          if (!Number.isFinite(item.lat) || !Number.isFinite(item.lon)) return;
-          const marker = L.circleMarker([item.lat, item.lon], {
-            radius: 8, color: "#FFFFFF", fillColor: color, fillOpacity: 0.9, weight: 2,
-          }).addTo(mapRef.current);
-          const dist = Number.isFinite(item.distance_m) ? `${item.distance_m}m` : "";
-          marker.bindTooltip(amenityTooltipHtml(item.name, dist), { permanent: true, direction: "top", className: "mrt-tooltip" });
-          marker.bindPopup(`<b>${item.name}</b>${dist ? `<br>${dist} away` : ""}`);
-          amenityMarkersRef.current.push(marker);
-        });
-      } catch {
-        if (!cancelled) setAmenityError("Unable to load — please try again");
-      } finally {
-        if (!cancelled) setAmenityLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeAmenity, selectedProjectLatLon, viewMode]);
+    const map = mapRef.current;
+    const groups = clusterRefs.current;
+    if (!map || !groups) return;
+    Object.keys(groups).forEach(k => {
+      const g = groups[k];
+      if (!g) return;
+      if (visibleLayers[k]) { if (!map.hasLayer(g)) map.addLayer(g); }
+      else if (map.hasLayer(g)) map.removeLayer(g);
+    });
+  }, [visibleLayers, viewMode, projects, schools, hawkers]);
 
   return (
     <div style={{fontFamily: "'Montserrat', sans-serif"}}>
@@ -2191,19 +2257,22 @@ function WealthPlannerCalc() {
                 ref={mapContainerRef}
                 style={{height: "480px", width: "100%", borderRadius: "12px", overflow: "hidden", marginTop: 20}}
               />
-              <div className="nd-segment" style={{marginTop: 12, maxWidth: 360}}>
+              <div className="nd-segment" style={{marginTop: 12, maxWidth: 460}}>
                 {AMENITY_TYPES.map(a => (
                   <button
                     key={a.id}
-                    className={`nd-seg-btn ${activeAmenity === a.id ? "active" : ""}`}
-                    onClick={() => toggleAmenity(a.id)}
+                    className={`nd-seg-btn ${visibleLayers[a.id] ? "active" : ""}`}
+                    onClick={() => toggleLayer(a.id)}
                   >
                     {a.label}
                   </button>
                 ))}
+                {selectedProjectLatLon && (
+                  <button className="nd-seg-btn" onClick={clearEmphasis}>Reset</button>
+                )}
               </div>
 
-              {activeAmenity === "mrt" && (
+              {visibleLayers.mrt && (
                 <div style={{display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", marginTop: 10, fontSize: 12, color: "#8A8A8A"}}>
                   {[
                     {line: "NSL", label: "NSL"},
@@ -2227,23 +2296,35 @@ function WealthPlannerCalc() {
                 </div>
               )}
 
-              {amenityLoading && (
-                <div style={{display: "flex", alignItems: "center", gap: 10, marginTop: 12}}>
-                  <div className="nd-spinner" style={{width: 20, height: 20, borderWidth: 2}} />
-                  <span className="nd-loading-text" style={{letterSpacing: 1}}>Loading nearby {activeAmenity === "school" ? "schools" : "hawkers"}…</span>
+              {visibleLayers.school && (
+                <div style={{display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", marginTop: 10, fontSize: 12, color: "#8A8A8A"}}>
+                  {[
+                    {level: "primary", label: "Primary"},
+                    {level: "secondary", label: "Secondary"},
+                    {level: "jc", label: "JC / MI"},
+                    {level: "mixed", label: "Mixed"},
+                    {level: "tertiary", label: "Poly / ITE / Uni"},
+                  ].map(item => (
+                    <span key={item.level} style={{display: "inline-flex", alignItems: "center", gap: 6}}>
+                      <span style={{
+                        width: 12, height: 12, borderRadius: "50%", display: "inline-block",
+                        background: SCHOOL_LEVEL_COLORS[item.level], border: "2px solid #FFFFFF", boxShadow: "0 0 0 1px #D3CFC7",
+                      }} />
+                      {item.label}
+                    </span>
+                  ))}
                 </div>
               )}
 
-              {amenityMessage && (
-                <div className="nd-empty-box" style={{marginTop: 12}}>{amenityMessage}</div>
-              )}
-
-              {amenityError && (
-                <div className="nd-empty-box" style={{marginTop: 12, borderColor: "#ef5350", color: "#c62828"}}>{amenityError}</div>
+              {visibleLayers.hawker && (
+                <div style={{display: "flex", gap: 8, alignItems: "center", marginTop: 10, fontSize: 12, color: "#8A8A8A"}}>
+                  <span style={{width: 12, height: 12, borderRadius: "50%", display: "inline-block", background: HAWKER_COLOR, border: "2px solid #FFFFFF", boxShadow: "0 0 0 1px #D3CFC7"}} />
+                  Hawker centre
+                </div>
               )}
 
               <p className="nd-section-sub" style={{marginTop: 10, marginBottom: 0}}>
-                Click a project pin, then toggle MRT / Schools / Hawkers to reveal what's nearby.
+                All amenities are shown (clustered). Use the chips to hide a layer, or click a project pin to emphasise what's within 2km with distances.
               </p>
             </>
           )}
