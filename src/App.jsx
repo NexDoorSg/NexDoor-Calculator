@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 
 const BRAND = {
   navy: "#0D1F3C",
@@ -261,6 +261,11 @@ style.textContent = `
 
   /* Emphasis: dim the whole clustered marker pane; the highlight/project panes stay bright. */
   .leaflet-container.nd-dim .leaflet-marker-pane { opacity: 0.16 !important; transition: opacity 0.15s; }
+  .nd-nearby-item { transition: background 0.12s; }
+  .nd-nearby-item:hover { background: #FBF7EF !important; }
+  /* Project name label (attached above each project pin). */
+  .project-label { background: #0D1F3C; color: #fff; border: 1.5px solid #C9A84C; border-radius: 8px; font-family: 'DM Sans', sans-serif; font-weight: 600; font-size: 12px; padding: 4px 9px; box-shadow: 0 2px 6px rgba(13,31,60,0.35); white-space: nowrap; }
+  .project-label::before { display: none; }
 
   .mrt-tooltip {
     background: white;
@@ -1185,22 +1190,14 @@ function amenityDotIcon(color) {
 // Unmistakable labelled pin for a suggested project — a navy pill showing the
 // project name (gold accent + pointer tail), in a navy/gold combo no amenity or
 // MRT line uses, so shortlisted projects always stand out and are named on-map.
-function projectPinIcon(name) {
-  const label = (name || "Project").length > 26 ? name.slice(0, 24) + "…" : (name || "Project");
-  const w = Math.round(label.length * 7.2 + 46);
-  const h = 34;
+function projectPinIcon() {
   return window.L.divIcon({
     className: "",
-    html: `<div style="position:relative;width:${w}px;height:${h}px">
-      <div style="position:absolute;top:0;left:0;width:${w}px;display:flex;align-items:center;gap:6px;box-sizing:border-box;background:#0D1F3C;color:#fff;border:2px solid #C9A84C;border-radius:9px;padding:5px 10px;font-family:'DM Sans',sans-serif;font-weight:600;font-size:12px;white-space:nowrap;box-shadow:0 3px 6px rgba(0,0,0,.4)">
-        <span style="width:8px;height:8px;border-radius:50%;background:#C9A84C;flex-shrink:0"></span>
-        <span style="overflow:hidden;text-overflow:ellipsis">${label}</span>
-      </div>
-      <div style="position:absolute;left:50%;top:25px;transform:translateX(-50%);width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:8px solid #0D1F3C"></div>
-    </div>`,
-    iconSize: [w, h],
-    iconAnchor: [w / 2, h - 1],
-    popupAnchor: [0, -h],
+    html: `<svg width="30" height="40" viewBox="0 0 30 40" style="filter:drop-shadow(0 2px 3px rgba(0,0,0,.4))"><path d="M15 1C7.8 1 2 6.6 2 13.6 2 23 15 39 15 39S28 23 28 13.6C28 6.6 22.2 1 15 1Z" fill="#0D1F3C" stroke="#FFFFFF" stroke-width="2.5"/><circle cx="15" cy="13.5" r="5.5" fill="#C9A84C"/></svg>`,
+    iconSize: [30, 40],
+    iconAnchor: [15, 39],
+    tooltipAnchor: [0, -34],
+    popupAnchor: [0, -34],
   });
 }
 
@@ -1399,8 +1396,11 @@ function WealthPlannerCalc() {
   const [selectedProjectLatLon, setSelectedProjectLatLon] = useState(null); // { lat, lon }
   // Always-on amenity layers; the toggle chips just show/hide each one.
   const [visibleLayers, setVisibleLayers] = useState({ mrt: true, school: true, hawker: true });
+  const [nearbyCat, setNearbyCat] = useState("mrt"); // selected category in the "what's nearby" dropdown
   const [schools, setSchools] = useState(null); // MOE primary/sec/JC + tertiary (public/schools.json)
   const [hawkers, setHawkers] = useState(null); // NEA hawker centres (public/hawkers.json)
+  const [buses, setBuses] = useState(null); // bus stops + services (public/bus.json) — nearby list only
+  const [supermarkets, setSupermarkets] = useState(null); // NEA supermarket licences (public/supermarkets.json) — nearby list only
 
   // Leaflet map instance + marker bookkeeping (refs so re-renders don't reset).
   const mapContainerRef = useRef(null);
@@ -1409,11 +1409,15 @@ function WealthPlannerCalc() {
   const amenityDataRef = useRef([]);     // [{ m, ll, color, title, sub }] for emphasis + distance
   const highlightRef = useRef(null);     // emphasis overlay layerGroup
   const radiusCircleRef = useRef(null);  // emphasis 2km circle
+  const locFocusRef = useRef(null);      // "pinpoint on map" highlight from the nearby list
+  const omsRef = useRef(null);           // OverlappingMarkerSpiderfier for project pins
 
   // Load the static amenity datasets once (served from public/).
   useEffect(() => {
     fetch("/schools.json").then(r => r.json()).then(setSchools).catch(() => setSchools([]));
     fetch("/hawkers.json").then(r => r.json()).then(setHawkers).catch(() => setHawkers([]));
+    fetch("/bus.json").then(r => r.json()).then(setBuses).catch(() => setBuses([]));
+    fetch("/supermarkets.json").then(r => r.json()).then(setSupermarkets).catch(() => setSupermarkets([]));
   }, []);
 
   const num = (v) => parseFloat(v) || 0;
@@ -1691,9 +1695,55 @@ function WealthPlannerCalc() {
     if (!map) return;
     if (radiusCircleRef.current) { map.removeLayer(radiusCircleRef.current); radiusCircleRef.current = null; }
     if (highlightRef.current) { map.removeLayer(highlightRef.current); highlightRef.current = null; }
+    if (locFocusRef.current) { map.removeLayer(locFocusRef.current); locFocusRef.current = null; }
     map.getContainer().classList.remove("nd-dim");
     setSelectedProjectLatLon(null);
   };
+
+  // Pinpoint a nearby item on the map (pan + a highlight ring) so it's easy to
+  // show a client exactly where it is.
+  const focusLocation = (lat, lon, label, dist) => {
+    const map = mapRef.current; const L = window.L;
+    if (!map || !L || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    if (locFocusRef.current) map.removeLayer(locFocusRef.current);
+    const proj = selectedProjectLatLon;
+    const ring = L.circleMarker([lat, lon], { pane: "hl", radius: 12, color: "#B84C30", weight: 3, fillColor: "#B84C30", fillOpacity: 0.25 });
+    ring.bindTooltip(`${label} · ${dist}m`, { permanent: true, direction: "top", className: "amenity" });
+    const layers = [ring];
+    // Dashed connector from the project to the amenity, so the distance is visible on the map.
+    if (proj) layers.push(L.polyline([[proj.lat, proj.lon], [lat, lon]], { pane: "hl", color: "#B84C30", weight: 2, opacity: 0.85, dashArray: "5,5" }));
+    locFocusRef.current = L.layerGroup(layers).addTo(map);
+    ring.openTooltip();
+    if (proj) map.fitBounds(L.latLngBounds([[proj.lat, proj.lon], [lat, lon]]), { padding: [55, 55], maxZoom: 17, animate: true });
+    else map.setView([lat, lon], 16, { animate: true });
+  };
+
+  // "What's nearby" for the clicked project — nearest items within 2km per
+  // category, sorted by distance. Bus + supermarkets are list-only (not on map).
+  const nearby = useMemo(() => {
+    if (!selectedProjectLatLon) return null;
+    const { lat, lon } = selectedProjectLatLon;
+    const near = (items, cap) => (items || [])
+      .map(it => ({ ...it, dist: Math.round(haversineM(lat, lon, it.lat, it.lon)) }))
+      .filter(x => x.dist <= 2000)
+      .sort((a, b) => a.dist - b.dist)
+      .slice(0, cap);
+    // MRT: dedup interchanges by name, keep the nearest platform.
+    const mrtMap = new Map();
+    MRT_STATIONS.forEach(s => {
+      const dist = Math.round(haversineM(lat, lon, s.lat, s.lon));
+      if (dist > 2000) return;
+      const cur = mrtMap.get(s.name);
+      if (!cur || dist < cur.dist) mrtMap.set(s.name, { name: s.name, line: s.line, future: s.status === "future", lat: s.lat, lon: s.lon, dist });
+    });
+    return {
+      mrt: [...mrtMap.values()].sort((a, b) => a.dist - b.dist).slice(0, 8),
+      bus: near(buses, 10),
+      school: near(schools, 12),
+      hawker: near(hawkers, 8),
+      supermarket: near(supermarkets, 10),
+    };
+  }, [selectedProjectLatLon, buses, schools, hawkers, supermarkets]);
 
   const toggleDistrict = (code) => {
     setSelectedDistricts(prev =>
@@ -1792,15 +1842,36 @@ function WealthPlannerCalc() {
     highlightRef.current = L.layerGroup();
     Object.keys(groups).forEach(k => { if (visibleLayers[k]) map.addLayer(groups[k]); });
 
-    // Project pins in their own pane (never dimmed). Click → emphasise nearby.
+    // Project pins in their own pane (never dimmed). Overlapping pins fan out
+    // (spiderfy) on click via OMS — individual labelled pins stay visible by
+    // default, no cluster badges. Wide labels → large foot-separation so the
+    // fanned pills don't re-overlap.
+    const OMS = window.OverlappingMarkerSpiderfier;
+    const oms = OMS ? new OMS(map, { keepSpiderfied: true, nearbyDistance: 40, circleFootSeparation: 95, spiralFootSeparation: 95, legWeight: 2.5, legColors: { usual: "#B84C30", highlighted: "#C9A84C" } }) : null;
+    omsRef.current = oms;
+    if (oms) {
+      oms.addListener("click", (marker) => {
+        const p = marker._project;
+        setSelectedProjectLatLon({ lat: p.lat, lon: p.lon, name: p.name });
+        emphasiseProject(L.latLng(p.lat, p.lon));
+        marker.openPopup();
+      });
+    }
     projects.forEach(p => {
       if (!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) return;
-      const marker = L.marker([p.lat, p.lon], { pane: "projPane", icon: projectPinIcon(p.name), zIndexOffset: 1000 }).addTo(map);
+      const marker = L.marker([p.lat, p.lon], { pane: "projPane", icon: projectPinIcon(), zIndexOffset: 1000 }).addTo(map);
       marker.bindPopup(projectPopupHtml(p));
-      marker.on("click", () => {
-        setSelectedProjectLatLon({ lat: p.lat, lon: p.lon });
-        emphasiseProject(L.latLng(p.lat, p.lon));
-      });
+      marker.bindTooltip(p.name, { permanent: true, direction: "top", className: "project-label", opacity: 1 });
+      marker._project = p;
+      if (oms) {
+        // OMS routes the click: overlapping pins fan out first; a lone/fanned pin fires the handler below.
+        oms.addMarker(marker);
+      } else {
+        marker.on("click", () => {
+          setSelectedProjectLatLon({ lat: p.lat, lon: p.lon, name: p.name });
+          emphasiseProject(L.latLng(p.lat, p.lon));
+        });
+      }
     });
 
     // The container was just revealed; let Leaflet recompute its size.
@@ -1812,6 +1883,8 @@ function WealthPlannerCalc() {
       clusterRefs.current = null;
       highlightRef.current = null;
       radiusCircleRef.current = null;
+      locFocusRef.current = null;
+      omsRef.current = null;
       map.remove();
       mapRef.current = null;
     };
@@ -2255,7 +2328,7 @@ function WealthPlannerCalc() {
               <div
                 id="wealth-planner-map"
                 ref={mapContainerRef}
-                style={{height: "480px", width: "100%", borderRadius: "12px", overflow: "hidden", marginTop: 20}}
+                style={{height: "480px", width: "100%", borderRadius: "12px", overflow: "hidden", marginTop: 20, position: "sticky", top: 8, zIndex: 5, boxShadow: "0 6px 16px rgba(13,31,60,0.10)"}}
               />
               <div className="nd-segment" style={{marginTop: 12, maxWidth: 460}}>
                 {AMENITY_TYPES.map(a => (
@@ -2324,8 +2397,61 @@ function WealthPlannerCalc() {
               )}
 
               <p className="nd-section-sub" style={{marginTop: 10, marginBottom: 0}}>
-                All amenities are shown (clustered). Use the chips to hide a layer, or click a project pin to emphasise what's within 2km with distances.
+                All amenities are shown (clustered). Use the chips to hide a layer, or click a project pin to see what's within 2km below.
               </p>
+
+              {nearby && (() => {
+                const CATS = [
+                  { key: "mrt", title: "MRT", color: "#16668c", render: m => `${m.name} · ${m.line}${m.future ? " (future)" : ""}`, label: m => `${m.name} MRT` },
+                  { key: "bus", title: "Bus", color: "#B84C30", render: b => `${b.code}${b.name ? ` · ${b.name}` : ""} — buses ${b.services.join(", ")}`, label: b => `Bus stop ${b.code}` },
+                  { key: "school", title: "Schools", color: "#2E8B57", render: s => `${s.name} · ${SCHOOL_LEVEL_LABELS[s.level] || s.level}`, label: s => s.name },
+                  { key: "hawker", title: "Hawkers", color: "#E67E22", render: h => h.name, label: h => h.name },
+                  { key: "supermarket", title: "Supermarkets", color: "#7A3E9D", render: s => `${s.name}${s.address ? ` · ${s.address}` : ""}`, label: s => s.name },
+                ];
+                const sec = CATS.find(c => c.key === nearbyCat) || CATS[0];
+                const items = nearby[sec.key] || [];
+                return (
+                  <div className="card" style={{marginTop: 16, padding: 18}}>
+                    <div style={{display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10}}>
+                      <h4 style={{margin: 0, fontFamily: "'Playfair Display', serif", fontSize: 16, color: "#0D1F3C"}}>
+                        Near {selectedProjectLatLon.name || "this project"}
+                        <span style={{fontSize: 11, fontWeight: 400, color: "#8A8A8A", marginLeft: 8, letterSpacing: 0.5}}>within 2 km</span>
+                      </h4>
+                      <div style={{display: "flex", gap: 8, alignItems: "center"}}>
+                        <select value={nearbyCat} onChange={e => setNearbyCat(e.target.value)}
+                          style={{borderRadius: 8, border: "1.5px solid #E8E4DE", padding: "6px 10px", fontSize: 13, fontWeight: 600, color: "#0D1F3C", background: "#fff", cursor: "pointer"}}>
+                          {CATS.map(c => (
+                            <option key={c.key} value={c.key}>{c.title} ({(nearby[c.key] || []).length})</option>
+                          ))}
+                        </select>
+                        <button className="nd-seg-btn" style={{padding: "6px 12px"}} onClick={clearEmphasis}>Clear</button>
+                      </div>
+                    </div>
+                    <p style={{fontSize: 12, color: "#A9A29A", margin: "6px 0 0"}}>Pick a category, then click an item to pinpoint it (with distance) on the map.</p>
+                    <div style={{marginTop: 8}}>
+                      <div style={{display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: sec.color, marginBottom: 2}}>
+                        <span style={{width: 8, height: 8, borderRadius: "50%", background: sec.color}} />
+                        {sec.title}
+                      </div>
+                      {items.length === 0 ? (
+                        <div style={{fontSize: 12, color: "#B0B0B0", padding: "4px 0"}}>None within 2 km</div>
+                      ) : (
+                        items.map((it, i) => (
+                          <button
+                            key={i}
+                            className="nd-nearby-item"
+                            onClick={() => focusLocation(it.lat, it.lon, sec.label(it), it.dist)}
+                            style={{display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 14, width: "100%", textAlign: "left", background: "none", border: "none", borderBottom: "1px solid #F0EDE8", padding: "6px 4px", cursor: "pointer", fontFamily: "inherit"}}
+                          >
+                            <span style={{color: "#0D1F3C", fontSize: 13, lineHeight: 1.45}}>{sec.render(it)}</span>
+                            <span style={{color: "#8A8A8A", fontWeight: 600, fontSize: 12, flexShrink: 0}}>{it.dist}m</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
             </>
           )}
         </>
