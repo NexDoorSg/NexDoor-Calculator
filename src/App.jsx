@@ -767,14 +767,24 @@ function SellerProceedsCalc() {
     const pct1 = (sellers === "2" && mannerOfHolding === "JT") ? 0.5 : parseInt(split) / 100;
     const pct2 = 1 - pct1;
 
-    const netPool = sp - loan - cpf1 - cpf2 - comm - legal - ssd;
-    const seller1Cash = netPool * pct1;
-    const seller2Cash = netPool * pct2;
+    // Pool before any CPF refund (what a tenancy in common divides), and the
+    // residue after every refund (what a joint tenancy divides).
+    const poolBeforeCpf = sp - loan - comm - legal - ssd;
+    const netPool = poolBeforeCpf - cpf1 - cpf2;
+
+    // Manner of holding selects the model, matching the Wealth Planner:
+    //   JT  — no distinct shares, so both refunds come off the top and the
+    //         residue is divided equally.
+    //   TIC — distinct shares, so each owner takes their share of the pool and
+    //         refunds their own CPF out of it.
+    const jointly = sellers === "2" && mannerOfHolding === "JT";
+    const seller1Cash = jointly ? netPool * pct1 : poolBeforeCpf * pct1 - cpf1;
+    const seller2Cash = jointly ? netPool * pct2 : poolBeforeCpf * pct2 - cpf2;
 
     const totalDeductions = loan + cpf1 + cpf2 + comm + legal + ssd;
     const netCash = sp - totalDeductions;
 
-    setResult({ sp, loan, cpf1, cpf2, comm, legal, ssd, totalDeductions, netCash, seller1Cash, seller2Cash, pct1, pct2 });
+    setResult({ sp, loan, cpf1, cpf2, comm, legal, ssd, totalDeductions, netCash, seller1Cash, seller2Cash, pct1, pct2, jointly });
   };
 
   return (
@@ -873,12 +883,12 @@ function SellerProceedsCalc() {
               <div className="nd-compare-card left">
                 <p className="nd-compare-card-label">Seller 1 ({Math.round(result.pct1 * 100)}% share)</p>
                 <div className="nd-compare-card-val">{fmtS(result.seller1Cash)}</div>
-                <p className="nd-compare-card-sub">Cash after CPF refund</p>
+                <p className="nd-compare-card-sub">{result.jointly ? "Equal share of cash after all CPF refunds" : "Share of pool, less own CPF refund"}</p>
               </div>
               <div className="nd-compare-card right">
                 <p className="nd-compare-card-label">Seller 2 ({Math.round(result.pct2 * 100)}% share)</p>
                 <div className="nd-compare-card-val">{fmtS(result.seller2Cash)}</div>
-                <p className="nd-compare-card-sub">Cash after CPF refund</p>
+                <p className="nd-compare-card-sub">{result.jointly ? "Equal share of cash after all CPF refunds" : "Share of pool, less own CPF refund"}</p>
               </div>
             </div>
           )}
@@ -1507,11 +1517,23 @@ function WealthPlannerCalc() {
   // derived), and under TIC once the owner has started entering them.
   const anyOwnership = coOwned && (isJT || ticFilled.length > 0);
 
+  // Cash left once every owner's CPF has been refunded — the pot a joint
+  // tenancy divides.
+  const residualCash = netPoolAfterCosts - totalCpfRefund;
+
+  // The manner of holding selects how CPF refunds are allocated:
+  //   JT  — joint tenants hold no distinct shares, so every obligation
+  //         (including both CPF refunds) comes off the top and the residue is
+  //         divided equally. An owner's own refund does not reduce their cash.
+  //   TIC — each owner holds a distinct share, so they take that share of the
+  //         pool and refund their own CPF out of it.
+  // Either way `oaAfter` stays individual: a refund lands in the member's own
+  // OA, which is their CPF accounting, not part of the sale split.
   const sellerBreakdown = sellerIdx.map(i => {
     const cpfRefund = num(sellerCpfPrincipals[i]) + num(sellerCpfInterests[i]);
     const ownership = ownershipPctOf(i) / 100;
-    const share = netPoolAfterCosts * ownership;
-    const cashInHand = share - cpfRefund;
+    const share = (isJT ? residualCash : netPoolAfterCosts) * ownership;
+    const cashInHand = isJT ? share : share - cpfRefund;
     const oaAfter = sellerCpfOaAfterSale(i);
     return { i, name: sellerNames[i], cpfRefund, ownership, share, cashInHand, oaAfter };
   });
@@ -2113,15 +2135,28 @@ function WealthPlannerCalc() {
                     Seller {s.i + 1}{s.name ? ` (${s.name})` : ""} — {Math.round(s.ownership * 100)}% share
                   </p>
                   <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12}}>
-                    <div className="nd-breakdown-item"><p className="nd-breakdown-label">Share of Net Pool</p><p className="nd-breakdown-val">{fmtS(s.share)}</p></div>
-                    <div className="nd-breakdown-item"><p className="nd-breakdown-label">Less: CPF Refund</p><p className="nd-breakdown-val">− {fmtS(s.cpfRefund)}</p></div>
-                    <div className="nd-breakdown-item"><p className="nd-breakdown-label">Cash in Hand</p><p className="nd-breakdown-val" style={{color: s.cashInHand < 0 ? "#ef5350" : "#C9A84C"}}>{fmtS(s.cashInHand)}</p></div>
+                    {isJT ? (
+                      // Under JT the seller's own refund never reduces their cash,
+                      // so it is shown for information rather than as a deduction —
+                      // "share − refund = cash" would not reconcile here.
+                      <div className="nd-breakdown-item"><p className="nd-breakdown-label">CPF Refund (to own OA)</p><p className="nd-breakdown-val">{fmtS(s.cpfRefund)}</p></div>
+                    ) : (
+                      <>
+                        <div className="nd-breakdown-item"><p className="nd-breakdown-label">Share of Net Pool</p><p className="nd-breakdown-val">{fmtS(s.share)}</p></div>
+                        <div className="nd-breakdown-item"><p className="nd-breakdown-label">Less: CPF Refund</p><p className="nd-breakdown-val">− {fmtS(s.cpfRefund)}</p></div>
+                      </>
+                    )}
+                    <div className="nd-breakdown-item"><p className="nd-breakdown-label">{isJT ? "Cash in Hand (equal share)" : "Cash in Hand"}</p><p className="nd-breakdown-val" style={{color: s.cashInHand < 0 ? "#ef5350" : "#C9A84C"}}>{fmtS(s.cashInHand)}</p></div>
                     <div className="nd-breakdown-item"><p className="nd-breakdown-label">CPF OA After Refund</p><p className="nd-breakdown-val">{fmtS(s.oaAfter)}</p></div>
                   </div>
                 </div>
               ))}
               <p className="nd-note" style={{marginTop: 16, color: "rgba(250,248,244,0.55)", background: "rgba(255,255,255,0.04)", borderLeftColor: "#C9A84C"}}>
-                Net pool after loan, commission, legal &amp; SSD: {fmtS(netPoolAfterCosts)}. Combined net cash proceeds: <strong style={{color:"#C9A84C"}}>{fmtS(netProceeds)}</strong>
+                Net pool after loan, commission, legal &amp; SSD: {fmtS(netPoolAfterCosts)}.{" "}
+                {isJT
+                  ? `Joint tenancy: all CPF refunds (${fmtS(totalCpfRefund)}) come off the top and the remaining ${fmtS(residualCash)} is divided equally.`
+                  : "Tenancy in common: each owner takes their share of the net pool, then refunds their own CPF from it."}{" "}
+                Combined net cash proceeds: <strong style={{color:"#C9A84C"}}>{fmtS(netProceeds)}</strong>
               </p>
             </div>
           )}
