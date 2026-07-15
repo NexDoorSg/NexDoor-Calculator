@@ -1,0 +1,35 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# Note: package-lock.json is intentionally NOT ignored — it is committed, to
+# match homevalue-frontend and to keep `npm ci` builds reproducible.
+
+# dependencies
+/node_modules
+
+# build output (vite)
+/dist
+/dist-ssr
+
+# testing
+/coverage
+
+# misc
+.DS_Store
+*.pem
+*.local
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# editors
+.vscode/*
+!.vscode/extensions.json
+.idea
