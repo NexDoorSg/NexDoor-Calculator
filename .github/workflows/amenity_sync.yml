@@ -1,0 +1,126 @@
+name: Amenity Sync
+
+# Monthly refresh of the Wealth Planner map's amenity layers from data.gov.sg:
+#   - MOE "General information of schools" -> public/schools.json
+#   - NEA "Hawker Centres"                 -> public/hawkers.json
+# New schools are geocoded via OneMap; existing ones reuse their coordinates.
+#
+# The 14 hand-curated tertiary institutions (polytechnics, ITEs, universities)
+# are NOT in the MOE dataset. sync_amenities.py holds them in a constant and
+# appends them verbatim, and the safety guard below evaluates ONLY the
+# MOE-sourced schools — the tertiary entries are never counted as removals.
+#
+# Normal months (a few amenities added/removed) commit straight to the branch
+# the job ran on. If a run would remove >10% of the MOE-sourced schools or of
+# the hawker centres — an API/source glitch rather than real closures — the
+# guard opens a PR for manual review instead.
+#
+# NOTE: GitHub only fires `schedule` on the default branch, so the monthly run
+# starts once this lands on main. Until then, use "Run workflow"
+# (workflow_dispatch) against this branch to exercise it.
+on:
+  schedule:
+    # 02:00 UTC on the 1st of each month (~10:00 Singapore time). Cron is UTC.
+    - cron: '0 2 1 * *'
+  workflow_dispatch: {}
+
+# Avoid overlapping runs (manual + scheduled) writing at the same time.
+concurrency:
+  group: amenity-sync
+  cancel-in-progress: false
+
+# Needed to push the refreshed JSON and to open a PR when the guard trips.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # No pip dependencies — the script uses only the Python standard library.
+
+      - name: Run amenity sync
+        id: sync
+        run: python -u scripts/amenity_sync/sync_amenities.py
+
+      - name: Detect changes
+        id: diff
+        run: |
+          if [ -n "$(git status --porcelain public/schools.json public/hawkers.json)" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: No changes
+        if: steps.diff.outputs.changed == 'false'
+        run: echo "No amenity changes this run — nothing to commit."
+
+      # --- Normal path: within the safe threshold -> commit to the branch ---
+      # For the scheduled monthly run this branch is main, since `schedule`
+      # only fires on the default branch.
+      - name: Commit refreshed amenity data
+        if: steps.diff.outputs.changed == 'true' && steps.sync.outputs.anomaly == 'false'
+        env:
+          SUMMARY: ${{ steps.sync.outputs.summary }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/schools.json public/hawkers.json
+          git commit -m "$SUMMARY"
+          git push origin HEAD:${{ github.ref_name }}
+
+      # --- Rare path: safety guard tripped -> open a PR, do NOT auto-merge ---
+      - name: Open review PR (anomaly)
+        if: steps.diff.outputs.changed == 'true' && steps.sync.outputs.anomaly == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SUMMARY: ${{ steps.sync.outputs.summary }}
+          REASON: ${{ steps.sync.outputs.anomaly_reason }}
+          SCHOOLS_MOE: ${{ steps.sync.outputs.schools_moe }}
+          SCHOOLS_ADDED: ${{ steps.sync.outputs.schools_added }}
+          SCHOOLS_REMOVED: ${{ steps.sync.outputs.schools_removed }}
+          HAWKERS_TOTAL: ${{ steps.sync.outputs.hawkers_total }}
+          HAWKERS_ADDED: ${{ steps.sync.outputs.hawkers_added }}
+          HAWKERS_REMOVED: ${{ steps.sync.outputs.hawkers_removed }}
+          BASE: ${{ github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          BRANCH="amenity-sync/review-${RUN_ID}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add public/schools.json public/hawkers.json
+          git commit -m "$SUMMARY (needs review)"
+          git push origin "$BRANCH"
+
+          {
+            echo "The monthly amenity sync tripped its safety guard: **more than 10% of an existing dataset would be removed in a single run.** That usually means a data-source or API glitch rather than genuine closures, so it was **not** committed automatically."
+            echo
+            echo "**Guard reason:** ${REASON}"
+            echo
+            echo "| | Total | Added | Removed |"
+            echo "|---|---|---|---|"
+            echo "| Schools (MOE-sourced) | ${SCHOOLS_MOE} | ${SCHOOLS_ADDED} | ${SCHOOLS_REMOVED} |"
+            echo "| Hawker centres | ${HAWKERS_TOTAL} | ${HAWKERS_ADDED} | ${HAWKERS_REMOVED} |"
+            echo
+            echo "The 14 hand-curated tertiary institutions are excluded from the guard and preserved verbatim, so they are never part of these counts."
+            echo
+            echo "Review the diff. If the removals are legitimate, merge this PR. If it was a glitch, close it — next month's run re-syncs from a healthy source."
+          } > /tmp/pr-body.md
+
+          gh pr create \
+            --base "$BASE" \
+            --head "$BRANCH" \
+            --title "Amenity sync anomaly — manual review needed" \
+            --body-file /tmp/pr-body.md
