@@ -1439,6 +1439,14 @@ function WealthPlannerCalc() {
   const netPoolAfterCosts = salePriceN - loanN - commN - legalN - ssdN;
   const netProceeds = selling ? (netPoolAfterCosts - totalCpfRefund) : 0;
 
+  // On sale, the seller's CPF principal AND accrued interest are refunded INTO
+  // their OA (the refund is deducted from their cash proceeds, not from their
+  // OA), so OA after the sale = current OA + principal + accrued interest.
+  // Single source of truth: both the per-seller breakdown below and the buyer
+  // auto-fill read this, so the two can never drift apart.
+  const sellerCpfOaAfterSale = (s) =>
+    num(sellerOaBalances[s]) + num(sellerCpfPrincipals[s]) + num(sellerCpfInterests[s]);
+
   // Splits apply if ANY seller entered an ownership %; otherwise single figure.
   const anyOwnership = sellerIdx.some(i => sellerOwnerships[i] !== "" && !isNaN(parseFloat(sellerOwnerships[i])));
   const sellerBreakdown = sellerIdx.map(i => {
@@ -1446,7 +1454,7 @@ function WealthPlannerCalc() {
     const ownership = num(sellerOwnerships[i]) / 100;
     const share = netPoolAfterCosts * ownership;
     const cashInHand = share - cpfRefund;
-    const oaAfter = num(sellerOaBalances[i]) - cpfRefund; // per spec: Current OA − refund
+    const oaAfter = sellerCpfOaAfterSale(i);
     return { i, name: sellerNames[i], cpfRefund, ownership, share, cashInHand, oaAfter };
   });
 
@@ -1459,11 +1467,6 @@ function WealthPlannerCalc() {
     const s = sourceSellerIdx(i);
     return (s >= 0 && !buyerNameEdited[i] && sellerNames[s]) ? sellerNames[s] : buyerNames[i];
   };
-  // On sale, the seller's CPF principal AND accrued interest are refunded into
-  // their OA, so CPF available for the next purchase = current OA + principal +
-  // accrued interest.
-  const sellerCpfOaAfterSale = (s) =>
-    num(sellerOaBalances[s]) + num(sellerCpfPrincipals[s]) + num(sellerCpfInterests[s]);
   const buyerOaNum = (i) => {
     const s = sourceSellerIdx(i);
     return (s >= 0 && !buyerOaEdited[i]) ? sellerCpfOaAfterSale(s) : num(buyerOaBalances[i]);
@@ -2019,7 +2022,7 @@ function WealthPlannerCalc() {
                     <div className="nd-breakdown-item"><p className="nd-breakdown-label">Share of Net Pool</p><p className="nd-breakdown-val">{fmtS(s.share)}</p></div>
                     <div className="nd-breakdown-item"><p className="nd-breakdown-label">Less: CPF Refund</p><p className="nd-breakdown-val">− {fmtS(s.cpfRefund)}</p></div>
                     <div className="nd-breakdown-item"><p className="nd-breakdown-label">Cash in Hand</p><p className="nd-breakdown-val" style={{color: s.cashInHand < 0 ? "#ef5350" : "#C9A84C"}}>{fmtS(s.cashInHand)}</p></div>
-                    <div className="nd-breakdown-item"><p className="nd-breakdown-label">CPF OA After Refund</p><p className="nd-breakdown-val" style={{color: s.oaAfter < 0 ? "#ef5350" : undefined}}>{fmtS(s.oaAfter)}</p></div>
+                    <div className="nd-breakdown-item"><p className="nd-breakdown-label">CPF OA After Refund</p><p className="nd-breakdown-val">{fmtS(s.oaAfter)}</p></div>
                   </div>
                 </div>
               ))}
