@@ -734,6 +734,11 @@ function RentalYieldCalc() {
 function SellerProceedsCalc() {
   const [sellers, setSellers] = useState("1");
   const [split, setSplit] = useState("50");
+  // Joint tenants hold equal interests, so JT forces a 50/50 split and the
+  // preset selector is hidden. TIC allows definable, unequal shares.
+  // `split` is left untouched while JT is selected, so switching back to TIC
+  // restores whatever the owner had picked.
+  const [mannerOfHolding, setMannerOfHolding] = useState("JT"); // "JT" | "TIC"
   const [salePrice, setSalePrice] = useState("");
   const [outstanding, setOutstanding] = useState("");
   const [cpfUsed1, setCpfUsed1] = useState("");
@@ -756,17 +761,30 @@ function SellerProceedsCalc() {
     const legal = parseFloat(legalFees) || 0;
     const ssd = sp * (SSD_RATES[Math.min(parseInt(ssdYears), 4)] || 0);
 
-    const pct1 = parseInt(split) / 100;
+    // JT: equal interests -> forced 50/50. TIC: the selected preset.
+    // (pct2 = 1 - pct1 means this tab's shares always total 100% by
+    // construction, so it needs no sum validation.)
+    const pct1 = (sellers === "2" && mannerOfHolding === "JT") ? 0.5 : parseInt(split) / 100;
     const pct2 = 1 - pct1;
 
-    const netPool = sp - loan - cpf1 - cpf2 - comm - legal - ssd;
-    const seller1Cash = netPool * pct1;
-    const seller2Cash = netPool * pct2;
+    // Pool before any CPF refund (what a tenancy in common divides), and the
+    // residue after every refund (what a joint tenancy divides).
+    const poolBeforeCpf = sp - loan - comm - legal - ssd;
+    const netPool = poolBeforeCpf - cpf1 - cpf2;
+
+    // Manner of holding selects the model, matching the Wealth Planner:
+    //   JT  — no distinct shares, so both refunds come off the top and the
+    //         residue is divided equally.
+    //   TIC — distinct shares, so each owner takes their share of the pool and
+    //         refunds their own CPF out of it.
+    const jointly = sellers === "2" && mannerOfHolding === "JT";
+    const seller1Cash = jointly ? netPool * pct1 : poolBeforeCpf * pct1 - cpf1;
+    const seller2Cash = jointly ? netPool * pct2 : poolBeforeCpf * pct2 - cpf2;
 
     const totalDeductions = loan + cpf1 + cpf2 + comm + legal + ssd;
     const netCash = sp - totalDeductions;
 
-    setResult({ sp, loan, cpf1, cpf2, comm, legal, ssd, totalDeductions, netCash, seller1Cash, seller2Cash, pct1, pct2 });
+    setResult({ sp, loan, cpf1, cpf2, comm, legal, ssd, totalDeductions, netCash, seller1Cash, seller2Cash, pct1, pct2, jointly });
   };
 
   return (
@@ -780,6 +798,12 @@ function SellerProceedsCalc() {
           <button className={`nd-seg-btn ${sellers === "2" ? "active" : ""}`} onClick={() => setSellers("2")}>2 Sellers</button>
         </div>
         {sellers === "2" && (
+          <div className="nd-segment" style={{flex:1, minWidth:220}}>
+            <button className={`nd-seg-btn ${mannerOfHolding === "JT" ? "active" : ""}`} onClick={() => setMannerOfHolding("JT")} style={{fontSize:10}}>Joint Tenancy</button>
+            <button className={`nd-seg-btn ${mannerOfHolding === "TIC" ? "active" : ""}`} onClick={() => setMannerOfHolding("TIC")} style={{fontSize:10}}>Tenancy in Common</button>
+          </div>
+        )}
+        {sellers === "2" && mannerOfHolding === "TIC" && (
           <div className="nd-segment" style={{flex:1, minWidth:200}}>
             {[["50","50 / 50"],["60","60 / 40"],["70","70 / 30"],["99","99 / 1"]].map(([v, l]) => (
               <button key={v} className={`nd-seg-btn ${split === v ? "active" : ""}`} onClick={() => setSplit(v)} style={{fontSize:10}}>{l}</button>
@@ -787,6 +811,13 @@ function SellerProceedsCalc() {
           </div>
         )}
       </div>
+      {sellers === "2" && (
+        <p className="nd-note" style={{marginTop: -8, marginBottom: 20}}>
+          {mannerOfHolding === "JT"
+            ? "Joint tenants hold equal interests, so proceeds are split 50 / 50."
+            : "Tenants in common hold definable shares, which may be unequal."}
+        </p>
+      )}
 
       <div className="nd-grid">
         <div className="nd-field">
@@ -852,12 +883,12 @@ function SellerProceedsCalc() {
               <div className="nd-compare-card left">
                 <p className="nd-compare-card-label">Seller 1 ({Math.round(result.pct1 * 100)}% share)</p>
                 <div className="nd-compare-card-val">{fmtS(result.seller1Cash)}</div>
-                <p className="nd-compare-card-sub">Cash after CPF refund</p>
+                <p className="nd-compare-card-sub">{result.jointly ? "Equal share of cash after all CPF refunds" : "Share of pool, less own CPF refund"}</p>
               </div>
               <div className="nd-compare-card right">
                 <p className="nd-compare-card-label">Seller 2 ({Math.round(result.pct2 * 100)}% share)</p>
                 <div className="nd-compare-card-val">{fmtS(result.seller2Cash)}</div>
-                <p className="nd-compare-card-sub">Cash after CPF refund</p>
+                <p className="nd-compare-card-sub">{result.jointly ? "Equal share of cash after all CPF refunds" : "Share of pool, less own CPF refund"}</p>
               </div>
             </div>
           )}
@@ -1357,6 +1388,11 @@ function WealthPlannerCalc() {
   const [sellerCpfInterests, setSellerCpfInterests] = useState(["", "", "", ""]);
   const [sellerOaBalances, setSellerOaBalances] = useState(["", "", "", ""]);
   const [sellerOwnerships, setSellerOwnerships] = useState(["", "", "", ""]);
+  // Manner of holding applies to the co-owners as a group, not per seller.
+  // Joint tenancy requires unity of interest — joint tenants hold equal
+  // interests — so JT fixes each share at 1/n and the field is read-only.
+  // Tenancy in common allows unequal, definable shares, so it stays editable.
+  const [mannerOfHolding, setMannerOfHolding] = useState("JT"); // "JT" | "TIC"
 
   // Are the sellers and buyers the same people? (drives buyer auto-fill)
   const [samePeople, setSamePeople] = useState(true);
@@ -1447,13 +1483,57 @@ function WealthPlannerCalc() {
   const sellerCpfOaAfterSale = (s) =>
     num(sellerOaBalances[s]) + num(sellerCpfPrincipals[s]) + num(sellerCpfInterests[s]);
 
-  // Splits apply if ANY seller entered an ownership %; otherwise single figure.
-  const anyOwnership = sellerIdx.some(i => sellerOwnerships[i] !== "" && !isNaN(parseFloat(sellerOwnerships[i])));
+  // Manner of holding only means anything with co-owners.
+  const coOwned = sellerCount > 1;
+  const isJT = coOwned && mannerOfHolding === "JT";
+
+  // Under JT every joint tenant holds an equal interest, so the share is 1/n.
+  // Kept unrounded here so n shares always reconstitute the whole pool (a
+  // displayed 33.33% × 3 would quietly lose 0.01% of it).
+  const jtOwnershipPct = 100 / sellerCount;
+  const ownershipPctOf = (i) => (isJT ? jtOwnershipPct : num(sellerOwnerships[i]));
+  // Rounded purely for display in the read-only field.
+  const jtOwnershipLabel = String(Math.round(jtOwnershipPct * 100) / 100);
+
+  // ── Tenancy-in-common ownership validation ──
+  // Shares must be stated for every owner and total 100%. Without this a 50/30
+  // entry silently leaves 20% of the pool unallocated, and a blank owner is
+  // treated as 0% — which shows them a large negative "cash in hand".
+  const ticFilled = sellerIdx.filter(i => sellerOwnerships[i] !== "" && !isNaN(parseFloat(sellerOwnerships[i])));
+  const ticBlank = sellerIdx.filter(i => sellerOwnerships[i] === "" || isNaN(parseFloat(sellerOwnerships[i])));
+  const ticSum = sellerIdx.reduce((s, i) => s + num(sellerOwnerships[i]), 0);
+  // Tolerance absorbs legitimate rounding (33.33 × 3 = 99.99), not sloppy input.
+  const ticSumOk = Math.abs(ticSum - 100) <= 0.1;
+  const ownershipError =
+    !coOwned || isJT || ticFilled.length === 0
+      ? null
+      : ticBlank.length > 0
+        ? `Enter an ownership % for every seller — ${ticBlank.length} of ${sellerCount} ${ticBlank.length === 1 ? "is" : "are"} blank. Tenancy in common needs each owner's share stated.`
+        : !ticSumOk
+          ? `Ownership shares total ${Math.round(ticSum * 100) / 100}%, not 100%. Adjust them so the whole property is accounted for.`
+          : null;
+
+  // Show the per-seller split once shares are known: always under JT (they're
+  // derived), and under TIC once the owner has started entering them.
+  const anyOwnership = coOwned && (isJT || ticFilled.length > 0);
+
+  // Cash left once every owner's CPF has been refunded — the pot a joint
+  // tenancy divides.
+  const residualCash = netPoolAfterCosts - totalCpfRefund;
+
+  // The manner of holding selects how CPF refunds are allocated:
+  //   JT  — joint tenants hold no distinct shares, so every obligation
+  //         (including both CPF refunds) comes off the top and the residue is
+  //         divided equally. An owner's own refund does not reduce their cash.
+  //   TIC — each owner holds a distinct share, so they take that share of the
+  //         pool and refund their own CPF out of it.
+  // Either way `oaAfter` stays individual: a refund lands in the member's own
+  // OA, which is their CPF accounting, not part of the sale split.
   const sellerBreakdown = sellerIdx.map(i => {
     const cpfRefund = num(sellerCpfPrincipals[i]) + num(sellerCpfInterests[i]);
-    const ownership = num(sellerOwnerships[i]) / 100;
-    const share = netPoolAfterCosts * ownership;
-    const cashInHand = share - cpfRefund;
+    const ownership = ownershipPctOf(i) / 100;
+    const share = (isJT ? residualCash : netPoolAfterCosts) * ownership;
+    const cashInHand = isJT ? share : share - cpfRefund;
     const oaAfter = sellerCpfOaAfterSale(i);
     return { i, name: sellerNames[i], cpfRefund, ownership, share, cashInHand, oaAfter };
   });
@@ -1937,6 +2017,21 @@ function WealthPlannerCalc() {
             </div>
           </div>
 
+          {coOwned && (
+            <div className="nd-field">
+              <label className="nd-label">Manner of Holding</label>
+              <div className="nd-segment" style={{marginBottom: 0, maxWidth: 320}}>
+                <button className={`nd-seg-btn ${mannerOfHolding === "JT" ? "active" : ""}`} onClick={() => setMannerOfHolding("JT")}>Joint Tenancy</button>
+                <button className={`nd-seg-btn ${mannerOfHolding === "TIC" ? "active" : ""}`} onClick={() => setMannerOfHolding("TIC")}>Tenancy in Common</button>
+              </div>
+              <p className="nd-note" style={{marginTop: 8}}>
+                {isJT
+                  ? `Joint tenants hold equal interests, so each share is fixed at ${jtOwnershipLabel}%.`
+                  : "Tenants in common hold definable shares, which may be unequal. They must total 100%."}
+              </p>
+            </div>
+          )}
+
           <div className="nd-grid">
             <div className="nd-field">
               <label className="nd-label">Sale Price</label>
@@ -1985,14 +2080,35 @@ function WealthPlannerCalc() {
                   <div className="nd-input-wrap"><span className="nd-prefix">S$ </span><input className="nd-input" placeholder="80,000" value={sellerOaBalances[i]} onChange={e => upd(setSellerOaBalances)(i, e.target.value)} /></div>
                 </div>
                 <div className="nd-field">
-                  <label className="nd-label">Ownership % (optional)</label>
-                  <input className="nd-input" placeholder="50" value={sellerOwnerships[i]} onChange={e => upd(setSellerOwnerships)(i, e.target.value)} />
+                  <label className="nd-label">
+                    {!coOwned ? "Ownership % (optional)" : isJT ? "Ownership % (equal — joint tenancy)" : "Ownership %"}
+                  </label>
+                  <input
+                    className="nd-input"
+                    placeholder="50"
+                    value={isJT ? jtOwnershipLabel : sellerOwnerships[i]}
+                    disabled={isJT}
+                    readOnly={isJT}
+                    title={isJT ? "Joint tenants hold equal interests, so this is fixed at 1/n." : undefined}
+                    style={isJT ? {opacity: 0.6, cursor: "not-allowed"} : undefined}
+                    onChange={e => upd(setSellerOwnerships)(i, e.target.value)}
+                  />
                 </div>
               </div>
             </div>
           ))}
 
-          {!anyOwnership ? (
+          {ownershipError ? (
+            <div className="nd-results" style={{marginTop: 8}}>
+              <p className="nd-results-title">Per-Seller Proceeds</p>
+              <p className="nd-note" style={{marginTop: 12, borderLeftColor: "#ef5350", color: "#ef5350", background: "rgba(239,83,80,0.08)"}}>
+                {ownershipError}
+              </p>
+              <p className="nd-note" style={{marginTop: 8, color: "rgba(250,248,244,0.55)"}}>
+                Net pool after loan, commission, legal &amp; SSD: {fmtS(netPoolAfterCosts)}. The per-seller split is hidden until the shares are valid.
+              </p>
+            </div>
+          ) : !anyOwnership ? (
             <div className="nd-results" style={{marginTop: 8}}>
               <p className="nd-results-title">Net Cash Proceeds from Sale</p>
               <div className="nd-result-main">
@@ -2019,15 +2135,28 @@ function WealthPlannerCalc() {
                     Seller {s.i + 1}{s.name ? ` (${s.name})` : ""} — {Math.round(s.ownership * 100)}% share
                   </p>
                   <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12}}>
-                    <div className="nd-breakdown-item"><p className="nd-breakdown-label">Share of Net Pool</p><p className="nd-breakdown-val">{fmtS(s.share)}</p></div>
-                    <div className="nd-breakdown-item"><p className="nd-breakdown-label">Less: CPF Refund</p><p className="nd-breakdown-val">− {fmtS(s.cpfRefund)}</p></div>
-                    <div className="nd-breakdown-item"><p className="nd-breakdown-label">Cash in Hand</p><p className="nd-breakdown-val" style={{color: s.cashInHand < 0 ? "#ef5350" : "#C9A84C"}}>{fmtS(s.cashInHand)}</p></div>
+                    {isJT ? (
+                      // Under JT the seller's own refund never reduces their cash,
+                      // so it is shown for information rather than as a deduction —
+                      // "share − refund = cash" would not reconcile here.
+                      <div className="nd-breakdown-item"><p className="nd-breakdown-label">CPF Refund (to own OA)</p><p className="nd-breakdown-val">{fmtS(s.cpfRefund)}</p></div>
+                    ) : (
+                      <>
+                        <div className="nd-breakdown-item"><p className="nd-breakdown-label">Share of Net Pool</p><p className="nd-breakdown-val">{fmtS(s.share)}</p></div>
+                        <div className="nd-breakdown-item"><p className="nd-breakdown-label">Less: CPF Refund</p><p className="nd-breakdown-val">− {fmtS(s.cpfRefund)}</p></div>
+                      </>
+                    )}
+                    <div className="nd-breakdown-item"><p className="nd-breakdown-label">{isJT ? "Cash in Hand (equal share)" : "Cash in Hand"}</p><p className="nd-breakdown-val" style={{color: s.cashInHand < 0 ? "#ef5350" : "#C9A84C"}}>{fmtS(s.cashInHand)}</p></div>
                     <div className="nd-breakdown-item"><p className="nd-breakdown-label">CPF OA After Refund</p><p className="nd-breakdown-val">{fmtS(s.oaAfter)}</p></div>
                   </div>
                 </div>
               ))}
               <p className="nd-note" style={{marginTop: 16, color: "rgba(250,248,244,0.55)", background: "rgba(255,255,255,0.04)", borderLeftColor: "#C9A84C"}}>
-                Net pool after loan, commission, legal &amp; SSD: {fmtS(netPoolAfterCosts)}. Combined net cash proceeds: <strong style={{color:"#C9A84C"}}>{fmtS(netProceeds)}</strong>
+                Net pool after loan, commission, legal &amp; SSD: {fmtS(netPoolAfterCosts)}.{" "}
+                {isJT
+                  ? `Joint tenancy: all CPF refunds (${fmtS(totalCpfRefund)}) come off the top and the remaining ${fmtS(residualCash)} is divided equally.`
+                  : "Tenancy in common: each owner takes their share of the net pool, then refunds their own CPF from it."}{" "}
+                Combined net cash proceeds: <strong style={{color:"#C9A84C"}}>{fmtS(netProceeds)}</strong>
               </p>
             </div>
           )}
